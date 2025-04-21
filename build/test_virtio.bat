@@ -1,0 +1,2 @@
+qemu-system-x86_64 -machine q35 -cpu Skylake-Client-v1 -m 1024 -netdev user,id=vnet0,hostfwd=tcp:127.0.0.1:80-:80 -device virtio-net-pci,netdev=vnet0,mac=66:47:df:ec:6a:f4 -object filter-dump,id=vnet0,netdev=vnet0,file=netcap.pcap -drive format=raw,id=disk,file=disk.img,if=none -device virtio-blk-pci,drive=disk,num-queues=4
+pause
