@@ -11,15 +11,15 @@ typedef Range JSONRange;
 typedef DataRange JSONDataRange;
 
 struct JSONReader {
-	char* data;
-	u32 cap;
-	u32 pos;
+	const char* data;
+	U32 cap;
+	U32 pos;
 	bool errored;
 
-	u32 skipRecurseDepth;
+	U32 skipRecurseDepth;
 
-	void init(char* src, u32 length) {
-		data = src;
+	void init(const void* src, U32 length) {
+		data = (const char*)src;
 		cap = length;
 		pos = 0;
 		errored = false;
@@ -27,7 +27,7 @@ struct JSONReader {
 	}
 
 	void eat_whitespace() {
-		VERIFY_RETURN(!errored, );
+		VERIFY_RETURN(!errored,);
 		while (pos < cap && is_whitespace(data[pos])) {
 			pos++;
 		}
@@ -44,7 +44,7 @@ struct JSONReader {
 	}
 
 	void expect_token(char token) {
-		VERIFY_RETURN(!errored, );
+		VERIFY_RETURN(!errored,);
 		if (!read_token(token)) {
 			errored = true;
 		}
@@ -53,7 +53,7 @@ struct JSONReader {
 	bool peek_token(char token) {
 		VERIFY_RETURN(!errored, false);
 		eat_whitespace();
-		return pos < cap&& data[pos] == token;
+		return pos < cap && data[pos] == token;
 	}
 
 	void begin_object() {
@@ -76,7 +76,7 @@ struct JSONReader {
 
 	bool read_string(Range* str) {
 		VERIFY_RETURN(!errored, false);
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		if (!read_token('"')) {
 			return false;
 		}
@@ -102,7 +102,7 @@ struct JSONReader {
 
 	bool read_field_name(Range* fieldName) {
 		VERIFY_RETURN(!errored, false);
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		if (!read_string(fieldName)) {
 			return false;
 		}
@@ -123,7 +123,7 @@ struct JSONReader {
 	}
 
 	bool match_string(const char* str) {
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		while (pos < cap && str[0] != '\0' && str[0] == data[pos]) {
 			str++, pos++;
 		}
@@ -136,7 +136,7 @@ struct JSONReader {
 
 	bool skip_number() {
 		VERIFY_RETURN(!errored, false);
-		u32 oldPos = pos;
+		U32 oldPos = pos;
 		// [ minus ] int [ frac ] [ exp ]
 
 		eat_whitespace();
@@ -196,17 +196,17 @@ struct JSONReader {
 	}
 
 	void skip_object() {
-		VERIFY_RETURN(!errored, );
+		VERIFY_RETURN(!errored,);
 		begin_object();
 		while (read_field_name(nullptr)) {
 			skip_value();
-			VERIFY_RETURN(!errored, );
+			VERIFY_RETURN(!errored,);
 		}
 		end_object();
 	}
 
 	void skip_array() {
-		VERIFY_RETURN(!errored, );
+		VERIFY_RETURN(!errored,);
 		begin_array();
 		while (true) {
 			eat_whitespace();
@@ -214,22 +214,22 @@ struct JSONReader {
 				break;
 			}
 			skip_value();
-			VERIFY_RETURN(!errored, );
+			VERIFY_RETURN(!errored,);
 		}
 		end_array();
 	}
 
 	void skip_value() {
 		// Since this is a recursive parser (the recursive version looks nice), make some attempt at preventing stack overflow.
-		constexpr u32 jsonRecurseMax = 128;
+		constexpr U32 jsonRecurseMax = 128;
 		if (skipRecurseDepth > jsonRecurseMax) {
 			errored = true;
 		}
-		VERIFY_RETURN(!errored, );
+		VERIFY_RETURN(!errored,);
 		skipRecurseDepth++;
 		eat_whitespace();
 		// value = false / null / true / object / array / number / string
-		if (match_string("true") || match_string("true") || match_string("null")) {
+		if (match_string("true") || match_string("false") || match_string("null")) {
 			// literal values
 		} else if (peek_token('"') && read_string(nullptr)) {
 			// string value
@@ -249,11 +249,11 @@ struct JSONReader {
 
 struct JSONWriter {
 	char* data;
-	u32 cap;
-	u32 pos;
+	U32 cap;
+	U32 pos;
 	bool errored;
 
-	void init(char* out, u32 length) {
+	void init(char* out, U32 length) {
 		data = out;
 		cap = length;
 		pos = 0;
@@ -282,7 +282,7 @@ struct JSONWriter {
 		return *this;
 	}
 
-	JSONWriter& write_data(const void* src, u32 length) {
+	JSONWriter& write_data(const void* src, U32 length) {
 		VERIFY_RETURN(!errored, *this);
 		if (pos + length <= cap) {
 			memcpy(data + pos, src, length);
@@ -293,9 +293,9 @@ struct JSONWriter {
 		return *this;
 	}
 
-	JSONWriter& write_base64(const void* src, u32 length) {
+	JSONWriter& write_base64(const void* src, U32 length) {
 		VERIFY_RETURN(!errored, *this);
-		u32 base64Length = base64url_encoded_size(length);
+		U32 base64Length = base64url_encoded_size(length);
 		if (pos + base64Length <= cap) {
 			pos += base64url_encode(data + pos, cap - pos, src, length);
 		} else {
@@ -321,8 +321,8 @@ struct JSONWriter {
 	}
 };
 
-inline bool copy_string_to_buffer(char* out, i32 outCap, const char* str) {
-	u32 length = strlen(str);
+inline bool copy_string_to_buffer(char* out, I32 outCap, const char* str) {
+	U32 length = strlen(str);
 	if (length > outCap) {
 		return false;
 	}
@@ -340,8 +340,8 @@ inline void write_jwk_es256_object(JSONWriter& json, SECP256R1PublicKey& ecPubli
 	json.end_object();
 }
 
-inline bool jws_encode_es256(u32* bytesWritten, char* output, u32 outputCap, const char* inputData, u32 inputDataLength, const char* nonce, u32 nonceLength, const char* requestURL, const char* accountURL, SECP256R1Key& ecKey) {
-	constexpr u32 jsonBufferSize = 1024;
+inline bool jws_encode_es256(U32* bytesWritten, char* output, U32 outputCap, const char* inputData, U32 inputDataLength, const char* nonce, U32 nonceLength, const char* requestURL, const char* accountURL, SECP256R1Key& ecKey) {
+	constexpr U32 jsonBufferSize = 1024;
 	char jsonBuffer[jsonBufferSize];
 	JSONWriter json; json.init(jsonBuffer, jsonBufferSize);
 	JSONWriter jws; jws.init(output, outputCap);
@@ -364,7 +364,7 @@ inline bool jws_encode_es256(u32* bytesWritten, char* output, u32 outputCap, con
 	json.write_str("\"url\":\"").write_str(requestURL).write_str("\"");
 	json.end_object();
 	VERIFY_RETURN(!json.errored, false);
-	u32 prev = jws.pos;
+	U32 prev = jws.pos;
 	jws.write_base64(json.data, json.pos);
 	sha.update(jws.data + prev, jws.pos - prev);
 	sha.update(".", 1);
@@ -377,10 +377,10 @@ inline bool jws_encode_es256(u32* bytesWritten, char* output, u32 outputCap, con
 	sha.update(jws.data + prev, jws.pos - prev);
 	jws.write_str("\",");
 
-	byte hash[SHA256_HASH_SIZE];
+	Byte hash[SHA256_HASH_SIZE];
 	sha.digest(hash);
-	constexpr u32 signatureLength = ECDSA_SECP256R1_SIGNATURE_LENGTH;
-	byte signature[signatureLength];
+	constexpr U32 signatureLength = ECDSA_SECP256R1_SIGNATURE_LENGTH;
+	Byte signature[signatureLength];
 	ecdsa_sign_secpr1_sha256(signature, hash, random, ecKey.privateKey.n);
 	jws.write_str("\"signature\":\"").write_base64(signature, signatureLength).write('"');
 	jws.end_object();
@@ -389,11 +389,11 @@ inline bool jws_encode_es256(u32* bytesWritten, char* output, u32 outputCap, con
 	return !jws.errored;
 }
 
-bool compute_jwk_thumbprint_base64(char* out, u32* outMaxAndSize, SECP256R1PublicKey& publicKey) {
-	u32 outMax = *outMaxAndSize;
+bool compute_jwk_thumbprint_base64(char* out, U32* outMaxAndSize, SECP256R1PublicKey& publicKey) {
+	U32 outMax = *outMaxAndSize;
 	VERIFY_RETURN(outMax >= base64url_encoded_size(SHA256_HASH_SIZE), false);
 	// For SECP256r1, the json only takes a little over a hundred characters
-	constexpr u32 intermediateBufferSize = 1024;
+	constexpr U32 intermediateBufferSize = 1024;
 	char intermediateJSON[intermediateBufferSize];
 	JSONWriter json; json.init(intermediateJSON, intermediateBufferSize);
 	json.begin_object();
@@ -404,9 +404,9 @@ bool compute_jwk_thumbprint_base64(char* out, u32* outMaxAndSize, SECP256R1Publi
 	json.write_str("\"y\":\"").write_base64(publicKey.y, SECP256R1_KEY_SIZE).write_str("\"");
 	json.end_object();
 	VERIFY_RETURN(!json.errored, false);
-	byte hash[SHA256_HASH_SIZE];
+	Byte hash[SHA256_HASH_SIZE];
 	sha256(hash, json.data, json.pos);
-	u32 encodedSize = base64url_encode(out, outMax, hash, SHA256_HASH_SIZE);
+	U32 encodedSize = base64url_encode(out, outMax, hash, SHA256_HASH_SIZE);
 	VERIFY_RETURN(encodedSize != 0, false);
 	*outMaxAndSize = encodedSize;
 	return true;

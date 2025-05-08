@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>DrillEngine</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		* {
+			margin: 0;
+			font-family: -apple-system,system-ui,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+			color: #C9D1D9;
+		}
+		header {
+			background-color: #7F0000;
+			font-family: 'Oxygen-Sans',sans-serif;
+			text-align: center;
+			padding: 5px;
+			font-size: 25px;
+		}
+		body {
+			background-color: #121212;
+			font-size: 14px;
+		}
+		h1, h2, h3 {
+			text-align: center;
+			line-height: 1.2;
+			margin-bottom: 10px;
+			margin-top: 10px;
+		}
+		p {
+			margin-bottom: 5px;
+		}
+	</style>
+</head>
+
+<body>
+	<header>
+		<h2>DrillEngine Blog</h2>
+	</header>
+	<div style="background-color: #282828; padding: 32px; padding-top: 20px; width: 600px; margin-left: auto; margin-right: auto; line-height: 22px; ">
+		<h1>Building This Blog, Part 1</h1>
+		<h2>This Blog</h2>
+		<p>Every programmer needs a blog, right? I've wanted one for years now, a place to post my thoughts on programming, development logs for my game, random ideas, etc. Really a very simple idea, how hard could it be?</p>
+		<h2>Web Technology?</h2>
+		<p>Building a blog, however, requires web development, something I started out completely unfamiliar with. So, how does one go about learning web development? There's the site builders, of course, places like blogspot.com, Wix, Weebly, and so on, but these give you relatively little control, and I felt these would not fit my needs.</p>
+		<p>Going a step lower, we have WordPress, which is used everywhere, probably in most of the programming blogs I've visited. This still didn't fit my needs; I wanted more control and I didn't like the idea of using a website builder. I wanted my website to be 100% mine.</p>
+		<p>Lower than that, we have frameworks, technology like React, Vue, Angular, and so on. I very much did not want to use any frameworks because I thought they would abstract too much, leaving me with knowledge of a specific framework and not much else. Frameworks also tend to be extremely bloated, slowing websites down, potentially even causing them to take multiple seconds to load. I wanted my blog to load quickly.</p>
+		<p>This leaves bare HTML, CSS, and Javascript. I could learn this. There's just one small issue: once I write it, how do I attach this data to a domain name such that anyone with a browser can download it and view it?</p>
+		<h2>How Does One Get HTML to a Browser?</h2>
+		<p>Again, there are multiple ways to handle this. First candidate: GitHub Pages. Very simple to set up, easy to manage the source code, handles all the hosting for you, you just need to point your domain name at it. Big issue: no dynamic content. I wanted comments on my blog site for sure, so GitHub Pages was out.</p>
+		<p>Second candidate: Linux server in the cloud with off-the-shelf hosting software like Nginx or Apache. Seems like a decent choice, but I felt I wasn't going to truly understand how my HTML was getting to the browser if I just used some pre-made program to handle the site.</p>
+		<p>Third candidate: Custom program that uses a library to receive HTTP requests so that I can respond to them manually. But, I thought to myself, I don't know how the HTTP library works, so I still wouldn't understand what the server is doing!</p>
+		<p>Fourth candidate: Custom program that uses unix sockets to receive TCP messages and parse HTTP requests from them. Now we're getting somewhere, but I still won't understand how the browser is connecting to the computer over TCP.</p>
+		<p>Final candidate: At some point, I realized that the only way I was going to be happy was if I implemented everything I possibly could myself to make sure I understood the whole web server front to back; I needed to build an operating system.</p>
+		<h2>The S in HTTPS?</h2>
+		<p>There's still one major connection component to deal with, and that's encryption. Everything is expected to be encrypted these days, and blogs are no exception. Even if there's no real reason to cryptographically protect the contents of this blog, which doesn't even have so much as an account system, browsers expect it, which meant I needed to learn the necessary cryptographic protocols and the math behind them.</p>
+		<h2>Databases?</h2>
+		<p>I mentioned wanting comments earlier, which means I needed some sort of way to store comments per post. I couldn't exactly use a normal database on a custom OS (and I wouldn't want to anyway, the whole point is that I know how everything works in this server), so I needed to make something up to store comments. I felt this would be a great opportunity to explore file systems, so I decided to implement a file system, loosely based on NTFS and ext4.</p>
+		<h2>Conclusion</h2>
+		<p>So there we go, the work was cut out. I needed to, from the OS up, implement a full HTTPS web server hosting a blog with comments. I'll dive deeper into my experience implementing each part in future posts.</p>
+	</div>
+</body>
+
+</html>

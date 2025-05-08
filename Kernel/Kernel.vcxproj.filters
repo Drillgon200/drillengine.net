@@ -62,5 +62,17 @@
     <ClInclude Include="RSA.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SerializeTools.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="X509.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CommandMode.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="SerializeToolsPowerOf5Table.txt" />
   </ItemGroup>
 </Project>

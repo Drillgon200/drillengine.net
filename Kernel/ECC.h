@@ -6,12 +6,12 @@
 
 #pragma pack(push, 1)
 struct SECP256R1PrivateKey {
-	u8 n[SECP256R1_KEY_SIZE];
+	U8 n[SECP256R1_KEY_SIZE];
 };
 
 struct SECP256R1PublicKey {
-	u8 x[SECP256R1_KEY_SIZE];
-	u8 y[SECP256R1_KEY_SIZE];
+	U8 x[SECP256R1_KEY_SIZE];
+	U8 y[SECP256R1_KEY_SIZE];
 };
 
 struct SECP256R1Key {
@@ -101,6 +101,7 @@ inline bool ec_check_point_on_curve(BigInteger& x, BigInteger& y, BigInteger& a,
 inline void ec_convert_from_homogenous_coords(BigInteger& x, BigInteger& y, BigInteger& z, BigInteger& mod) {
 	BigInteger tmp; tmp.init(x.cap);
 	BigInteger::modular_inverse(z, mod);
+	
 
 	BigInteger::mul(tmp, x, z);
 	BigInteger::div(tmp, mod, nullptr);
@@ -115,7 +116,7 @@ inline void ec_convert_from_homogenous_coords(BigInteger& x, BigInteger& y, BigI
 // Not necessarily the fastest way to do it, there are ones that use fewer multiplications here
 // http://www.hyperelliptic.org/EFD/g1p/auto-shortw-jacobian.html
 // coordinates are in homogenous space, with each number in montgomery form
-inline void ec_point_mul(BigInteger& x1, BigInteger& y1, BigInteger& z1, BigInteger& x2, BigInteger& y2, BigInteger& z2, BigInteger& curveA, BigInteger& mod, u64 inverse) {
+inline void ec_point_mul(BigInteger& x1, BigInteger& y1, BigInteger& z1, BigInteger& x2, BigInteger& y2, BigInteger& z2, BigInteger& curveA, BigInteger& mod, U64 inverse) {
 	if (BigInteger::is_zero(z2)) {
 		return;
 	}
@@ -250,7 +251,7 @@ inline void ec_point_mul(BigInteger& x1, BigInteger& y1, BigInteger& z1, BigInte
 
 inline bool ec_power(BigInteger& px, BigInteger& py, BigInteger& curveA, BigInteger& power, BigInteger& modulo) {
 	// Convert to montgomery form
-	u64 inverse = BigInteger::digit_negative_inverse(modulo.data[0]);
+	U64 inverse = BigInteger::digit_negative_inverse(modulo.data[0]);
 	BigInteger::word_shift_left(px, modulo.size);
 	BigInteger::div(px, modulo, nullptr);
 	BigInteger::word_shift_left(py, modulo.size);
@@ -274,16 +275,16 @@ inline bool ec_power(BigInteger& px, BigInteger& py, BigInteger& curveA, BigInte
 	BigInteger::assign(runningPointZ, one);
 
 
-	u32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
+	U32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
 	// Assignment does the first one
 	bitStart--;
-	for (i32 wordIdx = power.size - 1; wordIdx >= 0; wordIdx--) {
-		u64 word = power.data[wordIdx];
-		for (i32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
+	for (I32 wordIdx = power.size - 1; wordIdx >= 0; wordIdx--) {
+		U64 word = power.data[wordIdx];
+		for (I32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
 			// Square
 			ec_point_mul(runningPointX, runningPointY, runningPointZ, runningPointX, runningPointY, runningPointZ, curveAMontgomery, modulo, inverse);
 
-			u64 bit = (word >> bitIdx) & 1;
+			U64 bit = (word >> bitIdx) & 1;
 			if (bit) {
 				// Multiply
 				ec_point_mul(runningPointX, runningPointY, runningPointZ, px, py, one, curveAMontgomery, modulo, inverse);
@@ -312,15 +313,19 @@ inline bool ec_power(BigInteger& px, BigInteger& py, BigInteger& curveA, BigInte
 // This is the Strauss-Shamir trick
 inline bool ec_two_power_mul(BigInteger& pxA, BigInteger& pyA, BigInteger& pxB, BigInteger& pyB, BigInteger& curveA, BigInteger& powerA, BigInteger& powerB, BigInteger& modulo) {
 	// Convert to montgomery form
-	u64 inverse = BigInteger::digit_negative_inverse(modulo.data[0]);
+	U64 inverse = BigInteger::digit_negative_inverse(modulo.data[0]);
 	BigInteger::word_shift_left(pxA, modulo.size);
 	BigInteger::div(pxA, modulo, nullptr);
 	BigInteger::word_shift_left(pyA, modulo.size);
 	BigInteger::div(pyA, modulo, nullptr);
-	BigInteger::word_shift_left(pxB, modulo.size);
-	BigInteger::div(pxB, modulo, nullptr);
-	BigInteger::word_shift_left(pyB, modulo.size);
-	BigInteger::div(pyB, modulo, nullptr);
+	BigInteger pxBMont; pxBMont.init(pxB.cap);
+	BigInteger::assign(pxBMont, pxB);
+	BigInteger pyBMont; pyBMont.init(pyB.cap);
+	BigInteger::assign(pyBMont, pyB);
+	BigInteger::word_shift_left(pxBMont, modulo.size);
+	BigInteger::div(pxBMont, modulo, nullptr);
+	BigInteger::word_shift_left(pyBMont, modulo.size);
+	BigInteger::div(pyBMont, modulo, nullptr);
 
 	BigInteger curveAMontgomery; curveAMontgomery.init(curveA.cap);
 	BigInteger::assign(curveAMontgomery, curveA);
@@ -338,22 +343,22 @@ inline bool ec_two_power_mul(BigInteger& pxA, BigInteger& pyA, BigInteger& pxB, 
 	BigInteger::assign(aTimesBX, pxA);
 	BigInteger::assign(aTimesBY, pyA);
 	BigInteger::assign(aTimesBZ, one);
-	ec_point_mul(aTimesBX, aTimesBY, aTimesBZ, pxB, pyB, one, curveA, modulo, inverse);
+	ec_point_mul(aTimesBX, aTimesBY, aTimesBZ, pxBMont, pyBMont, one, curveA, modulo, inverse);
 
 	BigInteger runningPointX; runningPointX.init(pxA.cap);
 	BigInteger runningPointY; runningPointY.init(pxA.cap);
 	BigInteger runningPointZ; runningPointZ.init(pxA.cap);
-	u32 lengthPowerA = BigInteger::bitlength(powerA);
-	u32 lengthPowerB = BigInteger::bitlength(powerB);
-	u32 bitStart;
+	U32 lengthPowerA = BigInteger::bitlength(powerA);
+	U32 lengthPowerB = BigInteger::bitlength(powerB);
+	U32 bitStart;
 	if (lengthPowerA > lengthPowerB) {
 		BigInteger::assign(runningPointX, pxA);
 		BigInteger::assign(runningPointY, pyA);
 		BigInteger::assign(runningPointZ, one);
 		bitStart = 63 - _lzcnt_u64(powerA.data[powerA.size - 1]);
 	} else if (lengthPowerA < lengthPowerB) {
-		BigInteger::assign(runningPointX, pxB);
-		BigInteger::assign(runningPointY, pyB);
+		BigInteger::assign(runningPointX, pxBMont);
+		BigInteger::assign(runningPointY, pyBMont);
 		BigInteger::assign(runningPointZ, one);
 		bitStart = 63 - _lzcnt_u64(powerB.data[powerB.size - 1]);
 	} else {
@@ -365,22 +370,22 @@ inline bool ec_two_power_mul(BigInteger& pxA, BigInteger& pyA, BigInteger& pxB, 
 
 	// Assignment does the first one
 	bitStart--;
-	for (i32 wordIdx = max(powerA.size - 1, powerB.size - 1); wordIdx >= 0; wordIdx--) {
-		u64 wordA = wordIdx < powerA.size ? powerA.data[wordIdx] : 0;
-		u64 wordB = wordIdx < powerB.size ? powerB.data[wordIdx] : 0;
-		for (i32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
+	for (I32 wordIdx = max(powerA.size - 1, powerB.size - 1); wordIdx >= 0; wordIdx--) {
+		U64 wordA = wordIdx < powerA.size ? powerA.data[wordIdx] : 0;
+		U64 wordB = wordIdx < powerB.size ? powerB.data[wordIdx] : 0;
+		for (I32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
 			// Square
 			ec_point_mul(runningPointX, runningPointY, runningPointZ, runningPointX, runningPointY, runningPointZ, curveAMontgomery, modulo, inverse);
 
-			u64 bitA = (wordA >> bitIdx) & 1;
-			u64 bitB = (wordB >> bitIdx) & 1;
+			U64 bitA = (wordA >> bitIdx) & 1;
+			U64 bitB = (wordB >> bitIdx) & 1;
 			// Multiply
 			if (bitA == 1 && bitB == 1) {
 				ec_point_mul(runningPointX, runningPointY, runningPointZ, aTimesBX, aTimesBY, aTimesBZ, curveAMontgomery, modulo, inverse);
 			} else if (bitA == 1 && bitB == 0) {
 				ec_point_mul(runningPointX, runningPointY, runningPointZ, pxA, pyA, one, curveAMontgomery, modulo, inverse);
 			} else if (bitA == 0 && bitB == 1) {
-				ec_point_mul(runningPointX, runningPointY, runningPointZ, pxB, pyB, one, curveAMontgomery, modulo, inverse);
+				ec_point_mul(runningPointX, runningPointY, runningPointZ, pxBMont, pyBMont, one, curveAMontgomery, modulo, inverse);
 			}
 		}
 		bitStart = 63;
@@ -402,11 +407,11 @@ inline bool ec_two_power_mul(BigInteger& pxA, BigInteger& pyA, BigInteger& pxB, 
 	return true;
 }
 
-inline bool secp256r1_load_uncompressed(BigInteger& x, BigInteger& y, void* vbytes, u32 bytesLength) {
+inline bool secp256r1_load_uncompressed(BigInteger& x, BigInteger& y, void* vbytes, U32 bytesLength) {
 	if (bytesLength != 1 + 32 + 32) {
 		return false;
 	}
-	u8* bytes = reinterpret_cast<u8*>(vbytes);
+	U8* bytes = reinterpret_cast<U8*>(vbytes);
 	// 4 means uncompressed form
 	if (bytes[0] != 0x04) {
 		return false;
@@ -443,12 +448,12 @@ inline void secp256r1_generate_keypair(Keccak& random, void* publicKey, void* pr
 	//bool onCurve = ec_check_point_on_curve(x, y, curveA, curveB, curvePrime);
 
 	BigInteger::write_bytes_big_endian(publicKey, 32, x);
-	BigInteger::write_bytes_big_endian(reinterpret_cast<u8*>(publicKey) + 32, 32, y);
+	BigInteger::write_bytes_big_endian(reinterpret_cast<U8*>(publicKey) + 32, 32, y);
 	BigInteger::write_bytes_big_endian(privateKey, 32, randomKey);
 
 }
 
-inline bool secp256r1_ecdhe(void* output, const u8* publicX, const u8* publicY, const u8* privateKey) {
+inline bool secp256r1_ecdhe(void* output, const U8* publicX, const U8* publicY, const U8* privateKey) {
 	BigInteger x; x.init(64);
 	BigInteger y; y.init(64);
 	BigInteger power; power.init(64);

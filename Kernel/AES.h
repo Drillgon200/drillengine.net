@@ -7,7 +7,7 @@
 // x^128 + x^7 + x^2 + x + 1
 #define GCM_GALOIS_POLY 0b10000111ui64
 
-constexpr u32 AES_SUB_TABLE[256]{
+constexpr U32 AES_SUB_TABLE[256]{
 	0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
 	0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
 	0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
@@ -26,7 +26,7 @@ constexpr u32 AES_SUB_TABLE[256]{
 	0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16
 };
 
-constexpr u32 AES_SUB_TABLE_INVERSE[256]{
+constexpr U32 AES_SUB_TABLE_INVERSE[256]{
 	0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38, 0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
 	0x7C, 0xE3, 0x39, 0x82, 0x9B, 0x2F, 0xFF, 0x87, 0x34, 0x8E, 0x43, 0x44, 0xC4, 0xDE, 0xE9, 0xCB,
 	0x54, 0x7B, 0x94, 0x32, 0xA6, 0xC2, 0x23, 0x3D, 0xEE, 0x4C, 0x95, 0x0B, 0x42, 0xFA, 0xC3, 0x4E,
@@ -45,48 +45,48 @@ constexpr u32 AES_SUB_TABLE_INVERSE[256]{
 	0x17, 0x2B, 0x04, 0x7E, 0xBA, 0x77, 0xD6, 0x26, 0xE1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0C, 0x7D
 };
 
-constexpr u32 AES_ROUND_CONSTANTS[10]{
+constexpr U32 AES_ROUND_CONSTANTS[10]{
 	0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36
 };
 
-inline u32 galois_mulx(u32 n) {
+inline U32 galois_mulx(U32 n) {
 	// Basically multiply by x, if the high bit is set, subtract the modulo polynomial
 	return (n << 1) ^ (((n >> 7) & 1) * AES_GALOIS_POLY);
 }
 
-inline u32 galois_mul2(u32 n) {
+inline U32 galois_mul2(U32 n) {
 	// Multiply n(x); which is just multiplying by x
 	return galois_mulx(n);
 }
 
-inline u32 galois_mul3(u32 n) {
+inline U32 galois_mul3(U32 n) {
 	// Multiply n(x + 1); factoring to (n)x + n;
 	return galois_mulx(n) ^ n;
 }
 
-inline u32 galois_mul9(u32 n) {
+inline U32 galois_mul9(U32 n) {
 	// Multiply n(x^3 + 1); factoring to (((n)x)x)x + n
 	return galois_mulx(galois_mulx(galois_mulx(n))) ^ n;
 }
 
-inline u32 galois_mul11(u32 n) {
+inline U32 galois_mul11(U32 n) {
 	// Multiply n(x^3 + x + 1); factoring to (((n)x)x + n)x + n
 	return galois_mulx(galois_mulx(galois_mulx(n)) ^ n) ^ n;
 }
 
-inline u32 galois_mul13(u32 n) {
+inline U32 galois_mul13(U32 n) {
 	// Multiply n(x^3 + x^2 + 1); factoring to (((n)x + n)x)x + n
 	return galois_mulx(galois_mulx(galois_mulx(n) ^ n)) ^ n;
 }
 
-inline u32 galois_mul14(u32 n) {
+inline U32 galois_mul14(U32 n) {
 	// Multiply n(x^3 + x^2 + x); factoring to (((n)x + n)x + n)x
 	return galois_mulx(galois_mulx(galois_mulx(n) ^ n) ^ n);
 }
 
-inline u32 galois_mul(u32 x, u32 y) {
-	u32 result = 0;
-	for (u32 i = 0; i < 8; i++) {
+inline U32 galois_mul(U32 x, U32 y) {
+	U32 result = 0;
+	for (U32 i = 0; i < 8; i++) {
 		if ((y >> i) & 1) {
 			result ^= x << i;
 		}
@@ -94,8 +94,8 @@ inline u32 galois_mul(u32 x, u32 y) {
 	return result;
 }
 
-inline u32 galois_aes_reduce(u32 n) {
-	for (u32 i = 15; i >= 8; i--) {
+inline U32 galois_aes_reduce(U32 n) {
+	for (U32 i = 15; i >= 8; i--) {
 		if ((n >> i) & 1) {
 			n ^= AES_GALOIS_POLY << (i - 8);
 		}
@@ -103,14 +103,14 @@ inline u32 galois_aes_reduce(u32 n) {
 	return n;
 }
 
-inline u32 galois_aes_mul(u32 x, u32 y) {
-	u32 res = galois_mul(x, y);
+inline U32 galois_aes_mul(U32 x, U32 y) {
+	U32 res = galois_mul(x, y);
 	return galois_aes_reduce(res);
 }
 
-inline void galois_aes_matmul4x4(u32* arr1, u32* arr2, u32* result) {
-	for (u32 i = 0; i < 4; i++) {
-		for (u32 j = 0; j < 4; j++) {
+inline void galois_aes_matmul4x4(U32* arr1, U32* arr2, U32* result) {
+	for (U32 i = 0; i < 4; i++) {
+		for (U32 j = 0; j < 4; j++) {
 			result[i * 4 + j] =
 				galois_aes_mul(arr1[i * 4 + 0], arr2[0 * 4 + j]) ^
 				galois_aes_mul(arr1[i * 4 + 1], arr2[1 * 4 + j]) ^
@@ -130,23 +130,23 @@ inline void galois_aes_matmul4x4(u32* arr1, u32* arr2, u32* result) {
 #define AES_NUM_ROUND_KEYS (AES_NUM_ROUNDS + 1)
 
 struct AES {
-	u32 keySchedule[AES_BLOCK_SIZE_WORD32 * AES_NUM_ROUND_KEYS];
+	U32 keySchedule[AES_BLOCK_SIZE_WORD32 * AES_NUM_ROUND_KEYS];
 
-	u32 rot_word(u32 word) {
+	U32 rot_word(U32 word) {
 		return (word >> 8) | (word << 24);
 	}
 
-	u32 sub_word(u32 word) {
-		u32 w0 = AES_SUB_TABLE[(word) & 0xFF];
-		u32 w1 = AES_SUB_TABLE[(word >> 8) & 0xFF];
-		u32 w2 = AES_SUB_TABLE[(word >> 16) & 0xFF];
-		u32 w3 = AES_SUB_TABLE[(word >> 24) & 0xFF];
+	U32 sub_word(U32 word) {
+		U32 w0 = AES_SUB_TABLE[(word) & 0xFF];
+		U32 w1 = AES_SUB_TABLE[(word >> 8) & 0xFF];
+		U32 w2 = AES_SUB_TABLE[(word >> 16) & 0xFF];
+		U32 w3 = AES_SUB_TABLE[(word >> 24) & 0xFF];
 		return w0 | (w1 << 8) | (w2 << 16) | (w3 << 24);
 	}
 
 	void init(const void* key) {
 		memcpy(keySchedule, key, AES_KEY_SIZE_BYTES);
-		for (u32 i = AES_KEY_SIZE_WORD32; i < (4 * AES_NUM_ROUND_KEYS); i++) {
+		for (U32 i = AES_KEY_SIZE_WORD32; i < (4 * AES_NUM_ROUND_KEYS); i++) {
 			if ((i % AES_KEY_SIZE_WORD32) == 0) {
 				keySchedule[i] = keySchedule[i - AES_KEY_SIZE_WORD32] ^ sub_word(rot_word(keySchedule[i - 1])) ^ AES_ROUND_CONSTANTS[(i / AES_KEY_SIZE_WORD32) - 1];
 			} else if (AES_KEY_SIZE_WORD32 > 6 && (i % AES_KEY_SIZE_WORD32) == 4) {
@@ -157,13 +157,13 @@ struct AES {
 		}
 	}
 
-	void encrypt_round(u32 round, u8* block) {
-		u8* key = reinterpret_cast<u8*>(&keySchedule[(round + 1) * AES_BLOCK_SIZE_WORD32]);
+	void encrypt_round(U32 round, U8* block) {
+		U8* key = reinterpret_cast<U8*>(&keySchedule[(round + 1) * AES_BLOCK_SIZE_WORD32]);
 
 		// Byte sub
 		// The code to generate this substitution is at the bottom of this file
 		// For each byte it's the modular inverse with respect to the AES polynomial, multiplied by a bit matrix, then added to a constant
-		for (u32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
+		for (U32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
 			block[i] = AES_SUB_TABLE[block[i]];
 		}
 
@@ -184,7 +184,7 @@ struct AES {
 		// 15 3 7 11 (rotate 3 left)
 		//
 
-		u8 shiftedBlock[AES_BLOCK_SIZE_BYTES]{
+		U8 shiftedBlock[AES_BLOCK_SIZE_BYTES]{
 			block[0], block[5], block[10], block[15],
 			block[4], block[9], block[14], block[3],
 			block[8], block[13], block[2], block[7],
@@ -193,9 +193,9 @@ struct AES {
 
 		if (round != (AES_NUM_ROUNDS - 1)) {
 			// Mix col
-			for (u32 i = 0; i < 4; i++) {
-				u8* col = &shiftedBlock[i * 4];
-				u8* outCol = &block[i * 4];
+			for (U32 i = 0; i < 4; i++) {
+				U8* col = &shiftedBlock[i * 4];
+				U8* outCol = &block[i * 4];
 
 				// This is matrix multiplication of the column with this 4x4 matrix:
 				// 
@@ -214,26 +214,26 @@ struct AES {
 		}
 
 		// Key add
-		for (u32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
+		for (U32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
 			block[i] ^= key[i];
 		}
 	}
 
-	void decrypt_round(u32 round, u8* block) {
-		u8* key = reinterpret_cast<u8*>(&keySchedule[(round + 1) * AES_BLOCK_SIZE_WORD32]);
+	void decrypt_round(U32 round, U8* block) {
+		U8* key = reinterpret_cast<U8*>(&keySchedule[(round + 1) * AES_BLOCK_SIZE_WORD32]);
 
 		// Inverse key add
-		for (u32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
+		for (U32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
 			block[i] ^= key[i];
 		}
 
-		u8 shiftedBlock[AES_BLOCK_SIZE_BYTES];
+		U8 shiftedBlock[AES_BLOCK_SIZE_BYTES];
 
 		if (round != (AES_NUM_ROUNDS - 1)) {
 			// Inverse mix col
-			for (u32 i = 0; i < 4; i++) {
-				u8* col = &block[i * 4];
-				u8* outCol = &shiftedBlock[i * 4];
+			for (U32 i = 0; i < 4; i++) {
+				U8* col = &block[i * 4];
+				U8* outCol = &shiftedBlock[i * 4];
 
 				// This is matrix multiplication of the column with this 4x4 matrix:
 				// 
@@ -262,42 +262,42 @@ struct AES {
 		block[12] = shiftedBlock[12]; block[13] = shiftedBlock[9]; block[14] = shiftedBlock[6]; block[15] = shiftedBlock[3];
 
 		// Inverse sub bytes
-		for (u32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
+		for (U32 i = 0; i < AES_BLOCK_SIZE_BYTES; i++) {
 			block[i] = AES_SUB_TABLE_INVERSE[block[i]];
 		}
 	}
 
-	void encrypt_block(u8* block) {
+	void encrypt_block(U8* block) {
 		// Initial key add
-		u8* key = reinterpret_cast<u8*>(keySchedule);
-		for (u32 i = 0; i < 16; i++) {
+		U8* key = reinterpret_cast<U8*>(keySchedule);
+		for (U32 i = 0; i < 16; i++) {
 			block[i] ^= key[i];
 		}
 
-		for (u32 i = 0; i < AES_NUM_ROUNDS; i++) {
+		for (U32 i = 0; i < AES_NUM_ROUNDS; i++) {
 			encrypt_round(i, block);
 		}
 	}
 
-	void decrypt_block(u8* block) {
-		for (i32 i = (AES_NUM_ROUNDS - 1); i >= 0; i--) {
+	void decrypt_block(U8* block) {
+		for (I32 i = (AES_NUM_ROUNDS - 1); i >= 0; i--) {
 			decrypt_round(i, block);
 		}
 		// Inverse initial key add
-		u8* key = reinterpret_cast<u8*>(keySchedule);
-		for (u32 i = 0; i < 16; i++) {
+		U8* key = reinterpret_cast<U8*>(keySchedule);
+		for (U32 i = 0; i < 16; i++) {
 			block[i] ^= key[i];
 		}
 	}
 
-	u32 get_aes_output_size(u32 length) {
+	U32 get_aes_output_size(U32 length) {
 		// Lowest multiple of AES_BLOCK_SIZE_BYTES (16) greater than or equal to length
 		return (length + AES_BLOCK_SIZE_BYTES - 1) & ~(AES_BLOCK_SIZE_BYTES - 1);
 	}
 
-	void encrypt(u8* data, u32 length) {
-		u32 numBlocks = (length + AES_BLOCK_SIZE_BYTES - 1) >> 4;
-		for (u32 i = 0; i < numBlocks - 1; i++) {
+	void encrypt(U8* data, U32 length) {
+		U32 numBlocks = (length + AES_BLOCK_SIZE_BYTES - 1) >> 4;
+		for (U32 i = 0; i < numBlocks - 1; i++) {
 			encrypt_block(data + i * AES_BLOCK_SIZE_BYTES);
 			length -= AES_BLOCK_SIZE_BYTES;
 		}
@@ -305,30 +305,30 @@ struct AES {
 		encrypt_block(data + (numBlocks - 1) * AES_BLOCK_SIZE_BYTES);
 	}
 
-	void decrypt(u8* data, u32 length) {
-		u32 numBlocks = (length + AES_BLOCK_SIZE_BYTES - 1) >> 4;
-		for (u32 i = 0; i < numBlocks; i++) {
+	void decrypt(U8* data, U32 length) {
+		U32 numBlocks = (length + AES_BLOCK_SIZE_BYTES - 1) >> 4;
+		for (U32 i = 0; i < numBlocks; i++) {
 			decrypt_block(data + i * AES_BLOCK_SIZE_BYTES);
 		}
 	}
 };
 
-void gcm_galois_mul(u64 result[2], u64 x[2], u64 y[2]) {
+void gcm_galois_mul(U64 result[2], U64 x[2], U64 y[2]) {
 	result[0] = result[1] = 0;
 
 	// Double and add algorithm
 	// Loop over y in reverse, multiply by x for each bit, add x if the bit is 1
-	for (i32 word = 1; word >= 0; word--) {
-		for (i32 bit = 63; bit >= 0; bit--) {
+	for (I32 word = 1; word >= 0; word--) {
+		for (I32 bit = 63; bit >= 0; bit--) {
 			// Double
-			u64 needsReduction = (result[1] >> 63) & 1;
+			U64 needsReduction = (result[1] >> 63) & 1;
 			result[1] = (result[1] << 1) | (result[0] >> 63);
 			result[0] <<= 1;
 			if (needsReduction) {
 				result[0] ^= GCM_GALOIS_POLY;
 			}
 			// Add
-			u64 shouldAddX = (y[word] >> bit) & 1;
+			U64 shouldAddX = (y[word] >> bit) & 1;
 			if (shouldAddX) {
 				result[0] ^= x[0];
 				result[1] ^= x[1];
@@ -338,24 +338,24 @@ void gcm_galois_mul(u64 result[2], u64 x[2], u64 y[2]) {
 }
 
 struct GHASH {
-	u64 hash[2];
-	u64 hashSubkey[2];
+	U64 hash[2];
+	U64 hashSubkey[2];
 
-	void init(u64 key[2]) {
+	void init(U64 key[2]) {
 		hash[0] = hash[1] = 0;
 		hashSubkey[0] = bitswap_bytes64(key[0]);
 		hashSubkey[1] = bitswap_bytes64(key[1]);
 	}
 
 	// Data will be padded with zeros to a multiple of 16 bytes
-	void update(const void* vdata, u32 length) {
-		const u8* data = reinterpret_cast<const u8*>(vdata);
+	void update(const void* vdata, U32 length) {
+		const U8* data = reinterpret_cast<const U8*>(vdata);
 		while (length > 0) {
-			u32 blockLength = min(length, 16ui32);
-			u64 x[2];
+			U32 blockLength = min(length, 16ui32);
+			U64 x[2]{};
 			memcpy(x, data, blockLength);
 			if (blockLength != 16) {
-				memset(reinterpret_cast<u8*>(x) + blockLength, 0, 16 - blockLength);
+				memset(reinterpret_cast<U8*>(x) + blockLength, 0, 16 - blockLength);
 			}
 			x[0] = bitswap_bytes64(x[0]);
 			x[1] = bitswap_bytes64(x[1]);
@@ -363,7 +363,7 @@ struct GHASH {
 			hash[1] ^= x[1];
 
 			gcm_galois_mul(x, hash, hashSubkey);
-			u64 h[2]{ bitswap_bytes64(x[0]), bitswap_bytes64(x[1]) };
+			U64 h[2]{ bitswap_bytes64(x[0]), bitswap_bytes64(x[1]) };
 
 			hash[0] = x[0];
 			hash[1] = x[1];
@@ -374,7 +374,7 @@ struct GHASH {
 	}
 
 	void get_hash(void* out) {
-		u64 h[2]{ bitswap_bytes64(hash[0]), bitswap_bytes64(hash[1]) };
+		U64 h[2]{ bitswap_bytes64(hash[0]), bitswap_bytes64(hash[1]) };
 		// Possibly need to endian swap here
 		memcpy(out, h, 16);
 	}
@@ -384,7 +384,7 @@ struct GHASH {
 
 struct AESGCM {
 	AES aes;
-	u8 counterBlock[16];
+	U8 counterBlock[16];
 
 	void init(const void* key, const void* counterIV) {
 		aes.init(key);
@@ -394,20 +394,20 @@ struct AESGCM {
 	}
 
 	void inc32(void* data) {
-		store32_bigendian(data, load32_bigendian(data) + 1);
+		STORE_BE32(data, LOAD_BE32(data) + 1);
 	}
 
-	void gctr(void* vout, const void* vdata, u32 dataLength) {
-		u8* out = reinterpret_cast<u8*>(vout);
-		const u8* data = reinterpret_cast<const u8*>(vdata);
-		u8 cipherBuf[16];
+	void gctr(void* vout, const void* vdata, U32 dataLength) {
+		U8* out = reinterpret_cast<U8*>(vout);
+		const U8* data = reinterpret_cast<const U8*>(vdata);
+		U8 cipherBuf[16];
 		while (dataLength > 0) {
-			u32 processSize = min(dataLength, 16ui32);
+			U32 processSize = min(dataLength, 16ui32);
 			memcpy(cipherBuf, counterBlock, 16);
 
 			aes.encrypt_block(cipherBuf);
 			
-			for (u32 i = 0; i < processSize; i++) {
+			for (U32 i = 0; i < processSize; i++) {
 				out[i] = data[i] ^ cipherBuf[i];
 			}
 
@@ -419,9 +419,9 @@ struct AESGCM {
 		}
 	}
 
-	void encrypt(void* authTagOut, void* cipherOut, const void* vdata, u32 dataLength, const void* authenticatedData, u32 authenticatedDataLength) {
-		u64 zeroBlock[2]{};
-		aes.encrypt_block(reinterpret_cast<u8*>(zeroBlock));
+	void encrypt(void* authTagOut, void* cipherOut, const void* vdata, U32 dataLength, const void* authenticatedData, U32 authenticatedDataLength) {
+		U64 zeroBlock[2]{};
+		aes.encrypt_block(reinterpret_cast<U8*>(zeroBlock));
 
 		// Encrypt
 		inc32(counterBlock + 12);
@@ -436,28 +436,28 @@ struct AESGCM {
 		ghash.update(authenticatedData, authenticatedDataLength);
 		ghash.update(cipherOut, dataLength);
 
-		u64 dataLengths[2]{ bswap64(authenticatedDataLength * 8), bswap64(dataLength * 8) };
+		U64 dataLengths[2]{ bswap64(authenticatedDataLength * 8), bswap64(dataLength * 8) };
 		ghash.update(dataLengths, 16);
 		ghash.get_hash(authTagOut);
 		memcpy(zeroBlock, counterBlock, 16);
-		aes.encrypt_block(reinterpret_cast<u8*>(zeroBlock));
-		for (u32 i = 0; i < 16; i++) {
-			reinterpret_cast<u8*>(authTagOut)[i] ^= reinterpret_cast<u8*>(zeroBlock)[i];
+		aes.encrypt_block(reinterpret_cast<U8*>(zeroBlock));
+		for (U32 i = 0; i < 16; i++) {
+			reinterpret_cast<U8*>(authTagOut)[i] ^= reinterpret_cast<U8*>(zeroBlock)[i];
 		}
 	}
 
-	b32 decrypt(void* dataOut, const void* authTag, const void* vCipherData, u32 dataLength, const void* authenticatedData, u32 authenticatedDataLength) {
-		u64 zeroBlock[2]{};
-		aes.encrypt_block(reinterpret_cast<u8*>(zeroBlock));
+	B32 decrypt(void* dataOut, const void* authTag, const void* vCipherData, U32 dataLength, const void* authenticatedData, U32 authenticatedDataLength) {
+		U64 zeroBlock[2]{};
+		aes.encrypt_block(reinterpret_cast<U8*>(zeroBlock));
 
 		// Authenticate
 		GHASH ghash;
 		ghash.init(zeroBlock);
 		ghash.update(authenticatedData, authenticatedDataLength);
 		ghash.update(vCipherData, dataLength);
-		u64 dataLengths[2]{ bswap64(authenticatedDataLength * 8), bswap64(dataLength * 8) };
+		U64 dataLengths[2]{ bswap64(authenticatedDataLength * 8), bswap64(dataLength * 8) };
 		ghash.update(dataLengths, 16);
-		u8 newAuthTag[16];
+		U8 newAuthTag[16];
 		ghash.get_hash(newAuthTag);
 
 		// Reset counter block to zero before decrypt
@@ -465,9 +465,9 @@ struct AESGCM {
 		counterBlock[15] = 1;
 
 		memcpy(zeroBlock, counterBlock, 16);
-		aes.encrypt_block(reinterpret_cast<u8*>(zeroBlock));
-		for (u32 i = 0; i < 16; i++) {
-			newAuthTag[i] ^= reinterpret_cast<u8*>(zeroBlock)[i];
+		aes.encrypt_block(reinterpret_cast<U8*>(zeroBlock));
+		for (U32 i = 0; i < 16; i++) {
+			newAuthTag[i] ^= reinterpret_cast<U8*>(zeroBlock)[i];
 		}
 
 		// Decrypt (same as Encrypt)
@@ -482,7 +482,7 @@ struct AESGCM {
 // Code for generating the sbox constants below
 
 // The regular sbox matrix, numbers are LSB first
-constexpr u32 GALOIS_SBOX_MATRIX[8] = {
+constexpr U32 GALOIS_SBOX_MATRIX[8] = {
 	0b10001111,
 	0b11000111,
 	0b11100011,
@@ -494,7 +494,7 @@ constexpr u32 GALOIS_SBOX_MATRIX[8] = {
 };
 
 // We actually need the bit reversed version because C++ numbers are MSB first as you'd expect
-constexpr u32 GALOIS_SBOX_MATRIX_BIT_REVERSED[8] = {
+constexpr U32 GALOIS_SBOX_MATRIX_BIT_REVERSED[8] = {
 	0b11110001,
 	0b11100011,
 	0b11000111,
@@ -505,11 +505,11 @@ constexpr u32 GALOIS_SBOX_MATRIX_BIT_REVERSED[8] = {
 	0b11111000
 };
 
-inline u32 galois_div(u32 x, u32 y) {
-	u32 ySize = _lzcnt_u32(y) - 23;
-	u32 quotient = 0;
-	for (u32 i = 0; i <= ySize; i++) {
-		u32 idx = 8 - i;
+inline U32 galois_div(U32 x, U32 y) {
+	U32 ySize = _lzcnt_u32(y) - 23;
+	U32 quotient = 0;
+	for (U32 i = 0; i <= ySize; i++) {
+		U32 idx = 8 - i;
 		if ((x >> idx) & 1) {
 			x ^= y << (ySize - i);
 			quotient |= 1 << (ySize - i);
@@ -518,39 +518,39 @@ inline u32 galois_div(u32 x, u32 y) {
 	return quotient;
 }
 
-inline u32 galois_modular_invert(u32 n) {
+inline U32 galois_modular_invert(U32 n) {
 	if (n == 0) {
 		return 0;
 	}
 	// Extended Euclidian again, but with the galois polynomials
-	u32 t = 0;
-	u32 newT = 1;
-	u32 r = AES_GALOIS_POLY;
-	u32 newR = n;
+	U32 t = 0;
+	U32 newT = 1;
+	U32 r = AES_GALOIS_POLY;
+	U32 newR = n;
 	while (newR != 0) {
-		u32 quotient = galois_div(r, newR);
+		U32 quotient = galois_div(r, newR);
 		t ^= galois_mul(quotient, newT);
-		swap(t, newT);
-		u32 test = galois_mul(quotient, newR);
+		swap(&t, &newT);
+		U32 test = galois_mul(quotient, newR);
 		r ^= galois_mul(quotient, newR);
-		swap(r, newR);
+		swap(&r, &newR);
 	}
 	return t;
 }
 
-inline u32 bitwise_8bit_dot(u32 x, u32 y) {
-	u32 mul = x & y;
-	u32 result = 0;
-	for (u32 i = 0; i < 8; i++) {
+inline U32 bitwise_8bit_dot(U32 x, U32 y) {
+	U32 mul = x & y;
+	U32 result = 0;
+	for (U32 i = 0; i < 8; i++) {
 		result ^= (mul >> i) & 1;
 	}
 	return result;
 }
 
 inline void print_galois_sbox_arrays() {
-	u32 inverseMapping[256];
-	for (u32 i = 0; i < 256; i++) {
-		u32 num = galois_modular_invert(i);
+	U32 inverseMapping[256];
+	for (U32 i = 0; i < 256; i++) {
+		U32 num = galois_modular_invert(i);
 
 		num = bitwise_8bit_dot(num, GALOIS_SBOX_MATRIX_BIT_REVERSED[0]) |
 			(bitwise_8bit_dot(num, GALOIS_SBOX_MATRIX_BIT_REVERSED[1]) << 1) |
@@ -590,14 +590,14 @@ inline void print_galois_sbox_arrays() {
 }
 
 inline void print_mixcol_matrix_inverse() {
-	u32 mixcols[16]{
+	U32 mixcols[16]{
 		2, 3, 1, 1,
 		1, 2, 3, 1,
 		1, 1, 2, 3,
 		3, 1, 1, 2
 	};
-	u32 res[16];
-	u32 res2[16];
+	U32 res[16];
+	U32 res2[16];
 	galois_aes_matmul4x4(mixcols, mixcols, res);
 	galois_aes_matmul4x4(mixcols, res, res2);
 	galois_aes_matmul4x4(mixcols, res2, res);

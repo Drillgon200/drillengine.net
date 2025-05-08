@@ -10,12 +10,13 @@
 #define TCP_NOTIFY_RESET 0b100000
 #define TCP_NOTIFY_SEND_BUFFER_AVAILABLE 0b1000000
 #define TCP_NOTIFY_MASK 0b1111111
+// TCP_CLOSE_FREE_FLAG should not be used until TCP_NOTIFY_CLOSED is received if you want a graceful close
 #define TCP_CLOSE_FREE_FLAG 0x80000000
 
 #define USER_PROGRAM_DISK_OFFSET (512 * 1024)
 #define DISK_PROTECTED_AREA_END (1024 * 1024)
 
-enum DiskError : u32 {
+enum DiskError : U32 {
 	DISK_ERROR_SUCCESS = 0,
 	DISK_ERROR_COMMAND_TYPE_INVALID = 1,
 	DISK_ERROR_WOULD_BLOCK = 2,
@@ -25,13 +26,13 @@ enum DiskError : u32 {
 	DISK_ERROR_TIMEOUT = 6
 };
 
-enum DiskCmdType : u32 {
+enum DiskCmdType : U32 {
 	DISK_CMD_TYPE_READ = 0,
 	DISK_CMD_TYPE_WRITE = 1,
 	DISK_CMD_TYPE_FLUSH = 2
 };
 
-enum SyscallNum : u64 {
+enum SyscallNum : U64 {
 	SYSCALL_TIME = 0,
 	SYSCALL_VIRTUAL_MAP = 1,
 	SYSCALL_DISK_COMMAND = 2,
@@ -48,7 +49,8 @@ enum SyscallNum : u64 {
 	SYSCALL_DNS_LOOKUP_BLOCKING = 13,
 	SYSCALL_TCP_PORT_CONTROL = 14,
 	SYSCALL_SHUTDOWN = 15,
-	SYSCALL_DEBUG_PRINT = 16
+	SYSCALL_DEBUG_PRINT = 16,
+	SYSCALL_SET_KERNEL_PROGRAM_WRITE_ENABLE = 17
 };
 
 #define TCP_PORT_ENABLE_PORT_80_BIT (1 << 0)
@@ -62,6 +64,11 @@ enum SyscallShutdownCode {
 	SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP = 2
 };
 
+#define DNS_LOOKUP_SYSCALL_RESULT_IP_MASK 0xFFFFFFFF
+#define DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_SHIFT 32
+#define DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_MASK 0b11
+#define DNS_LOOKUP_SYSCALL_RESULT_TTL_SHIFT 34
+
 #define DNS_LOOKUP_RESULT_NO_LOOKUP 0
 #define DNS_LOOKUP_RESULT_LOOKUP_PENDING 1
 #define DNS_LOOKUP_RESULT_SUCCESS 2
@@ -69,38 +76,41 @@ enum SyscallShutdownCode {
 
 #pragma pack(push, 1)
 struct SyscallDiskCommandArgs {
-	u32 type;
-	u32 sectorCount;
+	U32 type;
+	U32 sectorCount;
 	void* data;
-	u64 diskSectorOffset;
-	u64 userData;
+	U64 diskSectorOffset;
+	U64 userData;
 };
 struct SyscallDiskCommandBlockingArgs {
 	DiskCmdType type;
-	u32 sectorCount;
+	U32 sectorCount;
 	void* data;
-	u64 diskSectorOffset;
+	U64 diskSectorOffset;
 };
 struct DiskCmdCompleted {
-	u64 userData;
+	U64 userData;
 	DiskError error;
-	u32 reserved;
+	U32 reserved;
 };
+#define TCP_OPEN_SYSCALL_ARG_REMOTE_IP_SHIFT 0
+#define TCP_OPEN_SYSCALL_ARG_REMOTE_PORT_SHIFT 32
+#define TCP_OPEN_SYSCALL_ARG_LOCAL_PORT_SHIFT 48
 struct SyscallTCPSendArgs {
-	u64 bufferAddress;
-	u32 bufferSize;
-	u32 blockIndex;
+	U64 bufferAddress;
+	U32 bufferSize;
+	U32 blockIndex;
 };
 struct SyscallTCPReceiveArgs {
-	u64 bufferAddress;
-	u32 bufferSize;
-	u32 blockIndex;
+	U64 bufferAddress;
+	U32 bufferSize;
+	U32 blockIndex;
 };
 struct SyscallTCPCannibalizeArgs {
-	u32 blockIndex;
-	u32 remoteIP;
-	u16 remotePort;
-	u16 localPort;
+	U32 blockIndex;
+	U32 remoteIP;
+	U16 remotePort;
+	U16 localPort;
 };
 struct SyscallDNSLookupArgs {
 	char name[255];
@@ -108,25 +118,52 @@ struct SyscallDNSLookupArgs {
 };
 #pragma pack(pop)
 
-typedef u64(__vectorcall *SyscallProc)(SyscallNum num, u64 args);
+typedef U64(__vectorcall *SyscallProc)(SyscallNum num, U64 args);
 
 SyscallProc g_syscallProc;
 
 void print(const char* str) {
-	g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>(str));
+	g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<U64>(str));
 }
 
-void print_num(u64 num) {
+void print_num(U64 num) {
 	char buffer[64];
 	buffer[63] = '\0';
 	buffer[62] = '\n';
 	char* ptr = &buffer[62];
 	if (!num) {
-		*(--ptr) = 0;
+		*(--ptr) = '0';
 	}
 	while (num) {
 		*(--ptr) = num % 10 + '0';
 		num /= 10;
 	}
-	g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>(ptr));
+	print(ptr);
+}
+
+I64 current_time_millis() {
+	return g_syscallProc(SYSCALL_TIME, 0);
+}
+
+B32 dns_lookup(U32* ipOut, U32* ttlOut, StrA domain) {
+	SyscallDNSLookupArgs dnsLookupArgs;
+	if (domain.length > ARRAY_COUNT(dnsLookupArgs.name)) {
+		return false;
+	}
+	dnsLookupArgs.alwaysZero = 0;
+	memcpy(dnsLookupArgs.name, domain.str, domain.length);
+	if (domain.length < ARRAY_COUNT(dnsLookupArgs.name)) {
+		dnsLookupArgs.name[domain.length] = 0;
+	}
+	U64 lookupResult = g_syscallProc(SYSCALL_DNS_LOOKUP_BLOCKING, U64(&dnsLookupArgs));
+	U32 ip = lookupResult & DNS_LOOKUP_SYSCALL_RESULT_IP_MASK;
+	U32 dnsLookupResultCode = lookupResult >> DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_SHIFT & DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_MASK;
+	U32 ttlMillis = lookupResult >> DNS_LOOKUP_SYSCALL_RESULT_TTL_SHIFT;
+	if (ipOut) {
+		*ipOut = ip;
+	}
+	if (ttlOut) {
+		*ttlOut = ttlMillis;
+	}
+	return dnsLookupResultCode == DNS_LOOKUP_RESULT_SUCCESS;
 }

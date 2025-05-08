@@ -4,15 +4,15 @@
 struct BigInteger;
 
 struct BigInteger {
-	static constexpr u32 MAX_DIGIT_COUNT = 128;
+	static constexpr U32 MAX_DIGIT_COUNT = 128;
 
 	// Plus 4, since division is nicer to deal with if there's some extra space at the end
-	u64 data[MAX_DIGIT_COUNT + 4];
-	u32 cap;
-	u32 size;
+	U64 data[MAX_DIGIT_COUNT + 4];
+	U32 cap;
+	U32 size;
 	bool negative;
 
-	void init(u32 digitCount) {
+	void init(U32 digitCount) {
 		cap = digitCount;
 		size = 1;
 		data[0] = 0;
@@ -28,13 +28,13 @@ struct BigInteger {
 		return num.size == 1 && num.data[0] == 0;
 	}
 
-	static bool is_equal(const BigInteger& num, u64 digit) {
+	static bool is_equal(const BigInteger& num, U64 digit) {
 		return num.size == 1 && num.data[0] == digit;
 	}
 
 	static void assign(BigInteger& dst, const BigInteger& src) {
-		u32 end = min(src.size, dst.cap);
-		for (u32 i = 0; i != end; i++) {
+		U32 end = min(src.size, dst.cap);
+		for (U32 i = 0; i != end; i++) {
 			dst.data[i] = src.data[i];
 		}
 		dst.size = end;
@@ -52,7 +52,7 @@ struct BigInteger {
 			base10Input++;
 		}
 		while (base10Input[0] >= '0' && base10Input[0] <= '9') {
-			u64 num = base10Input[0] - '0';
+			U64 num = base10Input[0] - '0';
 			mul_single(dst, dst, 10);
 			add_single(dst, dst, num);
 			base10Input++;
@@ -66,69 +66,76 @@ struct BigInteger {
 			neg = true;
 			hexInput++;
 		}
-		i32 size = 0;
+		I32 size = 0;
 		while (hexInput[size] != '\0' && ((hexInput[size] >= '0' && hexInput[size] <= '9') || ((hexInput[size] | 0b100000) >= 'a' && (hexInput[size] | 0b100000) <= 'f'))) {
 			size++;
 		}
 
-		i32 newSize = min(size, static_cast<i32>(dst.cap * 16));
+		I32 newSize = min(size, static_cast<I32>(dst.cap * 16));
 		hexInput += size - newSize;
 		size = newSize;
 
 		dst.size = (size + 15) >> 4;
-		for (u32 i = 0; i < dst.size; i++) {
+		for (U32 i = 0; i < dst.size; i++) {
 			dst.data[i] = 0;
 		}
-		for (i32 i = size - 1; i >= 0; i--) {
-			u32 idx = size - i - 1;
+		for (I32 i = size - 1; i >= 0; i--) {
+			U32 idx = size - i - 1;
 			// Convert any lowercacse letters to uppo
 			char digit = hexInput[i];
-			u64 quartet = digit > '9' ? (digit | 0b100000) - 'a' + 10 : digit - '0';
-			u32 wordIdx = idx >> 4;
+			U64 quartet = digit > '9' ? (digit | 0b100000) - 'a' + 10 : digit - '0';
+			U32 wordIdx = idx >> 4;
 			dst.data[wordIdx] |= quartet << ((idx & 15) * 4);
 		}
 
 		dst.negative = neg;
 	}
 
-	static void assign_bytes_big_endian(BigInteger& dst, const void* vbytes, u32 size) {
-		const u8* bytes = reinterpret_cast<const u8*>(vbytes);
-		u32 words = (size + 7) >> 3;
+	static void assign_bytes_big_endian(BigInteger& dst, const void* vbytes, U32 size) {
+		const U8* bytes = reinterpret_cast<const U8*>(vbytes);
+		U32 words = (size + 7) >> 3;
 		dst.size = words;
-		for (u32 i = 0; i < words; i++) {
+		for (U32 i = 0; i < words; i++) {
 			dst.data[i] = 0;
 		}
-		for (i32 i = size - 1; i >= 0; i--) {
-			u32 dataIdx = size - i - 1;
-			dst.data[dataIdx >> 3] |= static_cast<u64>(bytes[i]) << ((dataIdx & 7) * 8);
+		for (I32 i = size - 1; i >= 0; i--) {
+			U32 dataIdx = size - i - 1;
+			dst.data[dataIdx >> 3] |= static_cast<U64>(bytes[i]) << ((dataIdx & 7) * 8);
 		}
 		find_new_size(dst, words);
 	}
 
-	static void assign(BigInteger& dst, u64 src) {
+	static void assign(BigInteger& dst, U64 src) {
 		dst.size = 1;
 		dst.data[0] = src;
 		dst.negative = false;
 	}
 
-	static void write_bytes_big_endian(void* dst, u32 outSize, const BigInteger& src) {
-		u8* out = reinterpret_cast<u8*>(dst);
-		for (i32 i = outSize - 1; i >= 0; i--) {
-			u32 dataIdx = outSize - i - 1;
-			u32 wordIdx = dataIdx >> 3;
+	static void assign(BigInteger& dst, U64* src, U32 length) {
+		dst.size = min(length, dst.cap);
+		for (U32 i = 0; i < dst.size; i++) {
+			dst.data[i] = src[i];
+		}
+	}
+
+	static void write_bytes_big_endian(void* dst, U32 outSize, const BigInteger& src) {
+		U8* out = reinterpret_cast<U8*>(dst);
+		for (I32 i = outSize - 1; i >= 0; i--) {
+			U32 dataIdx = outSize - i - 1;
+			U32 wordIdx = dataIdx >> 3;
 			out[i] = wordIdx >= src.size ? 0 : (src.data[wordIdx] >> ((dataIdx & 7) * 8)) & 0xFF;
 		}
 	}
 
-	static u64 bitlength(BigInteger& val) {
+	static U64 bitlength(BigInteger& val) {
 		return (val.size - 1) * 64 + (64 - _lzcnt_u64(val.data[val.size - 1]));
 	}
 
-	static u64 count_trailing_zeros(BigInteger& val) {
+	static U64 count_trailing_zeros(BigInteger& val) {
 		if (is_zero(val)) {
 			return 0;
 		}
-		u32 idx = 0;
+		U32 idx = 0;
 		while (val.data[idx] == 0) {
 			idx++;
 		}
@@ -136,12 +143,12 @@ struct BigInteger {
 	}
 
 	static void invert_bits(BigInteger& val) {
-		for (u32 i = 0; i < val.size; i++) {
+		for (U32 i = 0; i < val.size; i++) {
 			val.data[i] = ~val.data[i];
 		}
 	}
 
-	static void find_new_size(BigInteger& val, u32 sizeMax) {
+	static void find_new_size(BigInteger& val, U32 sizeMax) {
 		sizeMax--;
 		for (; sizeMax >= 1; sizeMax--) {
 			if (val.data[sizeMax] != 0) {
@@ -152,13 +159,13 @@ struct BigInteger {
 	}
 
 	// Left greater -> 1, right greater -> -1, equal -> 0
-	static i32 cmp(BigInteger& left, BigInteger& right) {
+	static I32 cmp(BigInteger& left, BigInteger& right) {
 		if (left.size > right.size) {
 			return 1;
 		} else if (left.size < right.size) {
 			return -1;
 		}
-		for (i32 i = left.size - 1; i >= 0; i--) {
+		for (I32 i = left.size - 1; i >= 0; i--) {
 			if (left.data[i] > right.data[i]) {
 				return 1;
 			} else if (left.data[i] < right.data[i]) {
@@ -169,7 +176,7 @@ struct BigInteger {
 	}
 
 	// Left greater -> 1, right greater -> -1, equal -> 0
-	static i32 cmp(BigInteger& left, u64 right) {
+	static I32 cmp(BigInteger& left, U64 right) {
 		if (left.size > 1 || left.data[0] > right) {
 			return 1;
 		} else if (left.data[0] < right) {
@@ -178,10 +185,10 @@ struct BigInteger {
 		return 0;
 	}
 
-	static void word_shift_right(BigInteger& val, u32 amount) {
+	static void word_shift_right(BigInteger& val, U32 amount) {
 		amount = min(val.size, amount);
 		val.size -= amount;
-		for (u32 i = 0; i < val.size; i++) {
+		for (U32 i = 0; i < val.size; i++) {
 			val.data[i] = val.data[i + amount];
 		}
 		if (val.size == 0) {
@@ -190,8 +197,8 @@ struct BigInteger {
 		}
 	}
 
-	static void word_shift_left(BigInteger& val, u32 amount) {
-		i32 i = min(amount + val.size - 1, val.cap - 1);
+	static void word_shift_left(BigInteger& val, U32 amount) {
+		I32 i = min(amount + val.size - 1, val.cap - 1);
 		val.size = min(val.size + amount, val.cap);
 		for (; i >= amount; i--) {
 			val.data[i] = val.data[i - amount];
@@ -201,12 +208,12 @@ struct BigInteger {
 		}
 	}
 
-	static void bit_shift_right(BigInteger& val, u64 amount) {
+	static void bit_shift_right(BigInteger& val, U64 amount) {
 		if (amount >= 64) {
 			word_shift_right(val, amount >> 6);
 		}
 		amount &= 63;
-		for (u32 i = 0; i < (val.size - 1); i++) {
+		for (U32 i = 0; i < (val.size - 1); i++) {
 			val.data[i] = (val.data[i] >> amount) | (val.data[i + 1] << (64 - amount));
 		}
 		val.data[val.size - 1] >>= amount;
@@ -215,13 +222,13 @@ struct BigInteger {
 		}
 	}
 
-	static u64 bit_shift_left(BigInteger& val, u64 amount) {
+	static U64 bit_shift_left(BigInteger& val, U64 amount) {
 		if (amount >= 64) {
 			word_shift_left(val, amount >> 6);
 		}
 		amount &= 63;
-		u64 carryOver = val.data[val.size - 1] >> (64 - amount);
-		for (u32 i = val.size - 1; i > 0; i--) {
+		U64 carryOver = val.data[val.size - 1] >> (64 - amount);
+		for (U32 i = val.size - 1; i > 0; i--) {
 			val.data[i] = (val.data[i] << amount) | (val.data[i - 1] >> (64 - amount));
 		}
 		val.data[0] <<= amount;
@@ -233,14 +240,14 @@ struct BigInteger {
 		}
 	}
 
-	static u64 add_impl(BigInteger& result, BigInteger& left, BigInteger& right) {
-		u32 firstEnd = min(min(left.size, right.size), result.cap);
-		u32 lastEnd = min(max(left.size, right.size), result.cap);
-		u64 carryBit = 0;
-		u32 i = 0;
+	static U64 add_impl(BigInteger& result, BigInteger& left, BigInteger& right) {
+		U32 firstEnd = min(min(left.size, right.size), result.cap);
+		U32 lastEnd = min(max(left.size, right.size), result.cap);
+		U64 carryBit = 0;
+		U32 i = 0;
 		for (; i != firstEnd; i++) {
-			u64 oldCarry = carryBit;
-			u64 res = left.data[i] + right.data[i];
+			U64 oldCarry = carryBit;
+			U64 res = left.data[i] + right.data[i];
 			carryBit = res < left.data[i];
 			res += oldCarry;
 			carryBit |= res < left.data[i];
@@ -248,7 +255,7 @@ struct BigInteger {
 		}
 		BigInteger& data = (left.size > right.size) ? left : right;
 		for (; i != lastEnd; i++) {
-			u64 res = data.data[i] + carryBit;
+			U64 res = data.data[i] + carryBit;
 			carryBit = res < data.data[i];
 			result.data[i] = res;
 		}
@@ -262,14 +269,14 @@ struct BigInteger {
 		return carryBit;
 	}
 
-	static u64 sub_impl(BigInteger& result, BigInteger& left, BigInteger& right) {
-		u32 firstEnd = min(min(left.size, right.size), result.cap);
-		u32 lastEnd = min(max(left.size, right.size), result.cap);
-		u64 borrowBit = 0;
-		u32 i = 0;
+	static U64 sub_impl(BigInteger& result, BigInteger& left, BigInteger& right) {
+		U32 firstEnd = min(min(left.size, right.size), result.cap);
+		U32 lastEnd = min(max(left.size, right.size), result.cap);
+		U64 borrowBit = 0;
+		U32 i = 0;
 		for (; i != firstEnd; i++) {
-			u64 oldBorrow = borrowBit;
-			u64 res = left.data[i] - right.data[i];
+			U64 oldBorrow = borrowBit;
+			U64 res = left.data[i] - right.data[i];
 			borrowBit = res > left.data[i];
 			res -= oldBorrow;
 			borrowBit |= res > left.data[i];
@@ -277,9 +284,9 @@ struct BigInteger {
 		}
 		bool chooseLeft = left.size > right.size;
 		for (; i != lastEnd; i++) {
-			u64 oldData = (chooseLeft ? left.data[i] : 0);
-			u64 oldBorrow = borrowBit;
-			u64 res = (chooseLeft ? left.data[i] : (0ui64 - right.data[i]));
+			U64 oldData = (chooseLeft ? left.data[i] : 0);
+			U64 oldBorrow = borrowBit;
+			U64 res = (chooseLeft ? left.data[i] : (0ui64 - right.data[i]));
 			borrowBit = res > oldData;
 			res -= oldBorrow;
 			borrowBit |= res > oldData;
@@ -296,7 +303,7 @@ struct BigInteger {
 		return borrowBit;
 	}
 
-	static u64 add(BigInteger& result, BigInteger& left, BigInteger& right) {
+	static U64 add(BigInteger& result, BigInteger& left, BigInteger& right) {
 		if (left.negative && !right.negative) {
 			return sub_impl(result, right, left);
 		} else if (!left.negative && right.negative) {
@@ -306,7 +313,7 @@ struct BigInteger {
 		}
 	}
 
-	static u64 sub(BigInteger& result, BigInteger& left, BigInteger& right) {
+	static U64 sub(BigInteger& result, BigInteger& left, BigInteger& right) {
 		if (!left.negative && right.negative) {
 			return add_impl(result, left, right);
 		} else if (left.negative && right.negative) {
@@ -314,18 +321,18 @@ struct BigInteger {
 		} else if (!left.negative && !right.negative) {
 			return sub_impl(result, left, right);
 		} else {
-			u64 res = add_impl(result, left, right);
+			U64 res = add_impl(result, left, right);
 			result.negative = true;
 			return res;
 		}
 	}
 
-	static u64 add_single_impl(BigInteger& result, BigInteger& left, u64 right) {
-		u64 res = left.data[0] + right;
-		u64 carryBit = res < left.data[0];
+	static U64 add_single_impl(BigInteger& result, BigInteger& left, U64 right) {
+		U64 res = left.data[0] + right;
+		U64 carryBit = res < left.data[0];
 		left.data[0] = res;
-		u32 end = min(left.size, result.cap);
-		u32 i = 1;
+		U32 end = min(left.size, result.cap);
+		U32 i = 1;
 		for (; i != end; i++) {
 			res = left.data[i] + carryBit;
 			carryBit = res < left.data[i];
@@ -346,14 +353,14 @@ struct BigInteger {
 		return carryBit;
 	}
 
-	static u64 sub_single_impl(BigInteger& result, BigInteger& left, u64 right) {
-		u64 res = left.data[0] - right;
-		u64 borrowBit = res > left.data[0];
+	static U64 sub_single_impl(BigInteger& result, BigInteger& left, U64 right) {
+		U64 res = left.data[0] - right;
+		U64 borrowBit = res > left.data[0];
 		result.data[0] = res;
-		u32 end = min(left.size, result.cap);
-		u32 i = 1;
+		U32 end = min(left.size, result.cap);
+		U32 i = 1;
 		for (; i != end; i++) {
-			u64 res = left.data[i] - borrowBit;
+			U64 res = left.data[i] - borrowBit;
 			borrowBit = res > left.data[i];
 			result.data[i] = res;
 			if (borrowBit == 0) {
@@ -375,23 +382,23 @@ struct BigInteger {
 		return borrowBit;
 	}
 
-	static u64 sub_single(BigInteger& result, BigInteger& left, u64 right) {
+	static U64 sub_single(BigInteger& result, BigInteger& left, U64 right) {
 		if (left.negative) {
 			return add_single_impl(result, left, right);
 		}
 		return sub_single_impl(result, left, right);
 	}
 
-	static u64 add_single(BigInteger& result, BigInteger& left, u64 right) {
+	static U64 add_single(BigInteger& result, BigInteger& left, U64 right) {
 		if (left.negative) {
 			return sub_single_impl(result, left, right);
 		}
 		return add_single_impl(result, left, right);
 	}
 
-	static bool try_expand_size(BigInteger& val, u32 size) {
-		u32 toGrow = min(val.cap, max(val.size, size));
-		for (u32 i = val.size; i < toGrow; i++) {
+	static bool try_expand_size(BigInteger& val, U32 size) {
+		U32 toGrow = min(val.cap, max(val.size, size));
+		for (U32 i = val.size; i < toGrow; i++) {
 			val.data[i] = 0;
 		}
 		val.size = toGrow;
@@ -399,10 +406,10 @@ struct BigInteger {
 	}
 
 	// result = left + (rightLo + rightHigh * base) * (base ^ pos);
-	static void add128(BigInteger& result, u64 rightLo, u64 rightHi, u32 pos) {
+	static void add128(BigInteger& result, U64 rightLo, U64 rightHi, U32 pos) {
 		try_expand_size(result, pos + 1 + (rightHi != 0));
-		u64 res;
-		u64 carryBit = 0;
+		U64 res;
+		U64 carryBit = 0;
 
 		// Add the high and low parts of the 128 bit integer
 		if (pos < result.size) {
@@ -418,7 +425,7 @@ struct BigInteger {
 		}
 
 		// Propagate any carry bits
-		for (u32 i = pos + 2; i < result.size; i++) {
+		for (U32 i = pos + 2; i < result.size; i++) {
 			res = result.data[i] + carryBit;
 			carryBit = res < result.data[i];
 			result.data[i] = res;
@@ -434,13 +441,13 @@ struct BigInteger {
 	// result = left * right
 	static void mul(BigInteger& result, BigInteger& left, BigInteger& right) {
 		zero(result);
-		for (u32 i = 0; i < left.size; i++) {
-			for (u32 j = 0; j < right.size; j++) {
+		for (U32 i = 0; i < left.size; i++) {
+			for (U32 j = 0; j < right.size; j++) {
 				if (i + j >= result.cap) {
 					break;
 				}
-				u64 high;
-				u64 low = _umul128(left.data[i], right.data[j], &high);
+				U64 high;
+				U64 low = _umul128(left.data[i], right.data[j], &high);
 				// TODO don't do a full add here, partial add and carry
 				add128(result, low, high, i + j);
 			}
@@ -449,18 +456,18 @@ struct BigInteger {
 	}
 
 	// result = left * right
-	static void mul_single(BigInteger& result, BigInteger& left, u64 right) {
+	static void mul_single(BigInteger& result, BigInteger& left, U64 right) {
 		if (right == 0 || (left.size == 1 && left.data[0] == 0)) {
 			zero(result);
 			return;
 		}
-		u32 size = left.size;
+		U32 size = left.size;
 		try_expand_size(result, size);
-		u64 prevHigh = 0;
-		for (u32 i = 0; i < min(result.size, left.size); i++) {
-			u64 high;
-			u64 low = _umul128(left.data[i], right, &high);
-			u64 sum = low + prevHigh;
+		U64 prevHigh = 0;
+		for (U32 i = 0; i < min(result.size, left.size); i++) {
+			U64 high;
+			U64 low = _umul128(left.data[i], right, &high);
+			U64 sum = low + prevHigh;
 			// Carry
 			high += sum < prevHigh;
 			result.data[i] = sum;
@@ -474,28 +481,28 @@ struct BigInteger {
 	}
 
 	// result += left * right
-	static u64 fmadd_single(BigInteger& result, BigInteger& left, u64 right, u32 offset = 0) {
+	static U64 fmadd_single(BigInteger& result, BigInteger& left, U64 right, U32 offset = 0) {
 		if (right == 0 || is_zero(left)) {
 			return 0;
 		}
-		u32 size = left.size + offset;
+		U32 size = left.size + offset;
 		try_expand_size(result, size);
-		u64 carry = 0;
-		u32 i = offset;
+		U64 carry = 0;
+		U32 i = offset;
 		for (; i < min(result.size, size); i++) {
-			u64 high;
-			u64 low = _umul128(left.data[i - offset], right, &high);
-			u64 sum = low + carry;
+			U64 high;
+			U64 low = _umul128(left.data[i - offset], right, &high);
+			U64 sum = low + carry;
 			// Carry
 			high += sum < carry;
-			u64 prevSum = sum;
+			U64 prevSum = sum;
 			sum = result.data[i] + sum;
 			high += sum < prevSum;
 			result.data[i] = sum;
 			carry = high;
 		}
 		for (; carry && i < result.size; i++) {
-			u64 oldDigit = result.data[i];
+			U64 oldDigit = result.data[i];
 			result.data[i] += carry;
 			carry = result.data[i] < oldDigit;
 		}
@@ -506,31 +513,31 @@ struct BigInteger {
 		return carry;
 	}
 
-	static u64 div_single_rem(BigInteger& dividend, u64 divisor) {
+	static U64 div_single_rem(BigInteger& dividend, U64 divisor) {
 		if (dividend.size == 1 && dividend.data[0] < divisor) {
 			return dividend.data[0];
 		}
 
 		// https://janmr.com/blog/2012/11/basic-multiple-precision-short-division/
-		u64 remain = 0;
-		for (i32 k = i32(dividend.size - 1); k >= 0; k--) {
+		U64 remain = 0;
+		for (I32 k = I32(dividend.size - 1); k >= 0; k--) {
 			_udiv128(remain, dividend.data[k], divisor, &remain);
 		}
 		return remain;
 	}
 
 	// TODO test this
-	static u64 div_single(BigInteger& dividendAndQuotient, u64 divisor) {
+	static U64 div_single(BigInteger& dividendAndQuotient, U64 divisor) {
 		if (dividendAndQuotient.size == 1 && dividendAndQuotient.data[0] < divisor) {
-			u64 rem = dividendAndQuotient.data[0];
+			U64 rem = dividendAndQuotient.data[0];
 			zero(dividendAndQuotient);
 			return rem;
 		}
 
 		// https://janmr.com/blog/2012/11/basic-multiple-precision-short-division/
-		u64 remain = 0;
-		for (i32 k = i32(dividendAndQuotient.size - 1); k >= 0; k--) {
-			u64 quotient = _udiv128(remain, dividendAndQuotient.data[k], divisor, &remain);
+		U64 remain = 0;
+		for (I32 k = I32(dividendAndQuotient.size - 1); k >= 0; k--) {
+			U64 quotient = _udiv128(remain, dividendAndQuotient.data[k], divisor, &remain);
 			dividendAndQuotient.data[k] = quotient;
 		}
 		find_new_size(dividendAndQuotient, dividendAndQuotient.size);
@@ -539,7 +546,7 @@ struct BigInteger {
 
 	static void div(BigInteger& dividendAndRemainderOut, BigInteger& divisor, BigInteger* quotientOut) {
 		BigInteger& dividend = dividendAndRemainderOut;
-		i32 compare = cmp(dividend, divisor);
+		I32 compare = cmp(dividend, divisor);
 		// Special cases, the arguments are the same or dividing a smaller number by a larger number
 		if (compare == 0) {
 			// Same number
@@ -557,7 +564,7 @@ struct BigInteger {
 			return;
 		}
 
-		i32 divisorSize = divisor.size;
+		I32 divisorSize = divisor.size;
 
 		// Special case, divide by zero
 		if (divisorSize == 1 && divisor.data[0] == 0) {
@@ -567,9 +574,9 @@ struct BigInteger {
 		// Special case, the divisor only has one digit
 		if (divisorSize == 1) {
 			// https://janmr.com/blog/2012/11/basic-multiple-precision-short-division/
-			u64 remain = 0;
-			for (i32 k = i32(dividend.size - 1); k >= 0; k--) {
-				u64 quot = _udiv128(remain, dividend.data[k], divisor.data[0], &remain);
+			U64 remain = 0;
+			for (I32 k = I32(dividend.size - 1); k >= 0; k--) {
+				U64 quot = _udiv128(remain, dividend.data[k], divisor.data[0], &remain);
 				if (quotientOut && k < quotientOut->cap) {
 					quotientOut->data[k] = quot;
 				}
@@ -589,20 +596,20 @@ struct BigInteger {
 		// Page 272 of Knuth's The Art of Computer Programming, Volume 2.
 		// https://seriouscomputerist.atariverse.com/media/pdf/book/Art%20of%20Computer%20Programming%20-%20Volume%202%20(Seminumerical%20Algorithms).pdf
 
-		i32 dividendSize = is_zero(dividend) ? 0 : dividend.size;
+		I32 dividendSize = is_zero(dividend) ? 0 : dividend.size;
 		dividend.data[dividendSize] = 0;
 
 		// Normalization step, shift both numbers left so that the divisor has a 1 in the high bit
 		// This way the quotient estimate will be off by at most 2
-		u64 shift = __lzcnt64(divisor.data[divisorSize - 1]);
+		U64 shift = __lzcnt64(divisor.data[divisorSize - 1]);
 		if (shift != 0) {
-			for (i32 i = i32(divisorSize - 1); i > 0; i--) {
+			for (I32 i = I32(divisorSize - 1); i > 0; i--) {
 				divisor.data[i] = (divisor.data[i] << shift) | (divisor.data[i - 1] >> (64 - shift));
 			}
 			divisor.data[0] = divisor.data[0] << shift;
 
 
-			for (i32 i = i32(dividendSize); i > 0; i--) {
+			for (I32 i = I32(dividendSize); i > 0; i--) {
 				dividend.data[i] = (dividend.data[i] << shift) | (dividend.data[i - 1] >> (64 - shift));
 			}
 			dividend.data[0] = dividend.data[0] << shift;
@@ -617,15 +624,15 @@ struct BigInteger {
 		}
 
 		// Do long division
-		for (u32 i = dividendSize; i >= divisorSize; i--) {
+		for (U32 i = dividendSize; i >= divisorSize; i--) {
 			// Take a guess at the quotient digit by dividing the leading digits of the dividend and divisor
 			// Because of the normalization, it's guaranteed to be at most 2 greater than the real quotient digit, and not less.
-			u64 remainderHat;
-			u64 quotientHat;
+			U64 remainderHat;
+			U64 quotientHat;
 			if (dividend.data[i] == divisor.data[divisorSize - 1]) {
 				// udiv128 will throw an overflow exception if the quotient is greater than max uint64, so we have to handle the quotient == base step here
 				quotientHat = 0xFFFFFFFFFFFFFFFF;
-				u64 remainderHigh = dividend.data[i];
+				U64 remainderHigh = dividend.data[i];
 				remainderHat = dividend.data[i - 1] + divisor.data[divisorSize - 1];
 			} else {
 				quotientHat = _udiv128(dividend.data[i], dividend.data[i - 1], divisor.data[divisorSize - 1], &remainderHat);
@@ -633,10 +640,10 @@ struct BigInteger {
 
 			// Refine the tentative quotient digit using the next digits, this will get it within 1 of the real quotient digit
 			// The second article linked does a good job of explaining this
-			u64 qHatDHi;
+			U64 qHatDHi;
 			// qHat * v[n-2] (in Algo D)
-			u64 qHatDLo = _umul128(quotientHat, divisor.data[divisorSize - 2], &qHatDHi);
-			u64 oldRemainderHat = remainderHat;
+			U64 qHatDLo = _umul128(quotientHat, divisor.data[divisorSize - 2], &qHatDHi);
+			U64 oldRemainderHat = remainderHat;
 			// qHat * v[n-2] > b * rHat + u[j + n - 2] (in Algo D)
 			if (qHatDHi > remainderHat || (qHatDHi == remainderHat && qHatDLo > dividend.data[i - 2])) {
 				// Actually I have no idea if this is correct or not since I was not able to find a number that triggers it
@@ -655,27 +662,27 @@ struct BigInteger {
 
 			// At this point the tentative quotient digit is at most 1 greater (which is a rare case)
 			// Long division step, dividend = dividend - quotientDigit * divisor;
-			u64 multCarry = 0;
-			u64 borrow = 0;
-			for (u32 j = 0; j < divisorSize; j++) {
-				u64 mulHi;
-				u64 mulLo = _umul128(quotientHat, divisor.data[j], &mulHi);
-				u64 newMulLo = mulLo + multCarry;
+			U64 multCarry = 0;
+			U64 borrow = 0;
+			for (U32 j = 0; j < divisorSize; j++) {
+				U64 mulHi;
+				U64 mulLo = _umul128(quotientHat, divisor.data[j], &mulHi);
+				U64 newMulLo = mulLo + multCarry;
 				if (newMulLo < mulLo) {
 					mulHi++;
 				}
-				u32 dividendIdx = i - divisorSize + j;
+				U32 dividendIdx = i - divisorSize + j;
 
-				u64 subtraction = dividend.data[dividendIdx] - newMulLo;
-				u64 oldBorrow = borrow;
+				U64 subtraction = dividend.data[dividendIdx] - newMulLo;
+				U64 oldBorrow = borrow;
 				borrow = subtraction > dividend.data[dividendIdx];
 				subtraction -= oldBorrow;
 				borrow |= subtraction > dividend.data[dividendIdx];
 				dividend.data[dividendIdx] = subtraction;
 				multCarry = mulHi;
 			}
-			u64 subtraction = dividend.data[i] - multCarry;
-			u64 oldBorrow = borrow;
+			U64 subtraction = dividend.data[i] - multCarry;
+			U64 oldBorrow = borrow;
 			borrow = subtraction > dividend.data[i];
 			subtraction -= oldBorrow;
 			borrow |= subtraction > dividend.data[i];
@@ -685,12 +692,12 @@ struct BigInteger {
 				// Ended up negative, quotient was 1 too high, so add a divisor again
 				quotientHat--;
 				// I hope this add back is correct now.
-				u64 carry = 0;
-				for (u32 j = 0; j <= divisorSize; j++) {
-					u32 dividendIdx = i - divisorSize + j;
-					u64 divisorData = j < divisor.size ? divisor.data[j] : 0;
-					u64 oldCarry = carry;
-					u64 sum = dividend.data[dividendIdx] + divisorData;
+				U64 carry = 0;
+				for (U32 j = 0; j <= divisorSize; j++) {
+					U32 dividendIdx = i - divisorSize + j;
+					U64 divisorData = j < divisor.size ? divisor.data[j] : 0;
+					U64 oldCarry = carry;
+					U64 sum = dividend.data[dividendIdx] + divisorData;
 					carry = sum < dividend.data[dividendIdx];
 					sum += oldCarry;
 					carry |= sum < dividend.data[dividendIdx];
@@ -698,7 +705,7 @@ struct BigInteger {
 				}
 			}
 			if (quotientOut) {
-				u32 idx = i - divisorSize;
+				U32 idx = i - divisorSize;
 				if (idx < quotientOut->cap) {
 					quotientOut->data[idx] = quotientHat;
 					if (quotientHat != 0) {
@@ -709,12 +716,12 @@ struct BigInteger {
 		}
 		// Shift remainder and divisor back
 		if (shift != 0) {
-			for (u32 i = 0; i < divisorSize - 1; i++) {
+			for (U32 i = 0; i < divisorSize - 1; i++) {
 				divisor.data[i] = (divisor.data[i] >> shift) | (divisor.data[i + 1] << (64 - shift));
 			}
 			divisor.data[divisorSize - 1] >>= shift;
 
-			for (u32 i = 0; i < dividendSize - 1; i++) {
+			for (U32 i = 0; i < dividendSize - 1; i++) {
 				dividend.data[i] = (dividend.data[i] >> shift) | (dividend.data[i + 1] << (64 - shift));
 			}
 			dividend.data[dividendSize - 1] >>= shift;
@@ -736,7 +743,7 @@ struct BigInteger {
 		assign(r, mod);
 		BigInteger& newR = num;
 		// t = 0, newT = 1
-		BigInteger t; r.init(num.cap);
+		BigInteger t; t.init(num.cap);
 		BigInteger newT; newT.init(num.cap);
 		newT.data[0] = 1;
 		// temp storage vars
@@ -754,11 +761,11 @@ struct BigInteger {
 
 			mul(tmp, quotient, *newTPtr);
 			sub(*tPtr, *tPtr, tmp);
-			swap(tPtr, newTPtr);
+			swap(&tPtr, &newTPtr);
 
 			mul(tmp, quotient, *newRPtr);
 			sub(*rPtr, *rPtr, tmp);
-			swap(rPtr, newRPtr);
+			swap(&rPtr, &newRPtr);
 		}
 		// Check if r is greater than 1
 		if (rPtr->size > 1 || rPtr->data[0] > 1) {
@@ -783,7 +790,7 @@ struct BigInteger {
 
 		while (!is_zero(*pB)) {
 			div(*pA, *pB, nullptr);
-			swap(pA, pB);
+			swap(&pA, &pB);
 		}
 		assign(result, *pA);
 	}
@@ -810,9 +817,9 @@ struct BigInteger {
 	// ax(2 - ax) === 1 (mod 2^(2k))
 	// 
 	// Doing this iteratively, with x = 2x - ax^2, doubles the number of modulo power of 2 bits each time
-	static u64 digit_negative_inverse(u64 digit) {
+	static U64 digit_negative_inverse(U64 digit) {
 		// 4 bit inverse
-		u64 x = ((((digit << 1) ^ digit) & 4) << 1) ^ digit;
+		U64 x = ((((digit << 1) ^ digit) & 4) << 1) ^ digit;
 		// 8 bit inverse
 		x += x - digit * x * x;
 		// 16 bit inverse
@@ -824,9 +831,9 @@ struct BigInteger {
 		return U64_MAX - x + 1;
 	}
 
-	static u32 digit_negative_inverse32(u32 digit) {
+	static U32 digit_negative_inverse32(U32 digit) {
 		// 4 bit inverse
-		u32 x = ((((digit << 1) ^ digit) & 4) << 1) ^ digit;
+		U32 x = ((((digit << 1) ^ digit) & 4) << 1) ^ digit;
 		// 8 bit inverse
 		x += x - digit * x * x;
 		// 16 bit inverse
@@ -836,9 +843,9 @@ struct BigInteger {
 		return U32_MAX - x + 1;
 	}
 
-	static u64 bit_at(BigInteger& val, u32 idx) {
-		u32 wordIdx = idx >> 6;
-		u32 bitIdx = idx & 0b111111;
+	static U64 bit_at(BigInteger& val, U32 idx) {
+		U32 wordIdx = idx >> 6;
+		U32 bitIdx = idx & 0b111111;
 		return (val.data[wordIdx] >> bitIdx) & 1;
 	}
 
@@ -848,13 +855,13 @@ struct BigInteger {
 	// https://link.springer.com/content/pdf/10.1007/3-540-46877-3_21.pdf
 	// This implementation is essentially the "Improvement 1" algorithm from the paper.
 	// It's a lot simpler and looks cleaner than the later improvements, and I'm not going for an optimized library here
-	static void montgomery_redc(BigInteger& toReduce, BigInteger& modulo, u64 inverse) {
-		u32 rLength = modulo.size;
-		u32 modLength = modulo.size;
+	static void montgomery_redc(BigInteger& toReduce, BigInteger& modulo, U64 inverse) {
+		U32 rLength = modulo.size;
+		U32 modLength = modulo.size;
 
 		// Do the T += mod * negativeModInverse * T[i] step
-		u64 carry = 0;
-		for (u32 i = 0; i < modLength; i++) {
+		U64 carry = 0;
+		for (U32 i = 0; i < modLength; i++) {
 			carry = fmadd_single(toReduce, modulo, inverse * (i < toReduce.size ? toReduce.data[i] : 0), i);
 		}
 
@@ -888,14 +895,14 @@ struct BigInteger {
 		}
 	}
 
-	static void montgomery_mul(BigInteger& result, BigInteger& a, BigInteger& b, BigInteger& mod, u64 inv) {
+	static void montgomery_mul(BigInteger& result, BigInteger& a, BigInteger& b, BigInteger& mod, U64 inv) {
 		mul(result, a, b);
 		montgomery_redc(result, mod, inv);
 	}
 
-	static void montgomery_lshift(BigInteger& n, u32 amount, BigInteger& mod) {
+	static void montgomery_lshift(BigInteger& n, U32 amount, BigInteger& mod) {
 		amount &= 63;
-		for (u32 i = 0; i < amount; i++) {
+		for (U32 i = 0; i < amount; i++) {
 			bit_shift_left(n, 1);
 			if (cmp(n, mod) >= 0) {
 				sub(n, n, mod);
@@ -937,24 +944,24 @@ struct BigInteger {
 		assign(result, 2);
 		word_shift_left(result, mod.size);
 		div(result, mod, nullptr);
-		u64 inverse = digit_negative_inverse(mod.data[0]);
+		U64 inverse = digit_negative_inverse(mod.data[0]);
 
 		BigInteger tmp; tmp.init(result.cap);
 		BigInteger* pResult = &result;
 		BigInteger* pTmp = &tmp;
 
-		u32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
+		U32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
 		bitStart--;
-		for (i32 i = power.size - 1; i >= 0; i--) {
-			u64 word = power.data[i];
-			for (i32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
+		for (I32 i = power.size - 1; i >= 0; i--) {
+			U64 word = power.data[i];
+			for (I32 bitIdx = bitStart; bitIdx >= 0; bitIdx--) {
 				// Square
 				montgomery_mul(*pTmp, *pResult, *pResult, mod, inverse);
-				swap(pTmp, pResult);
+				swap(&pTmp, &pResult);
 				// Multiply
-				u64 bit = (word >> bitIdx) & 1;
+				U64 bit = (word >> bitIdx) & 1;
 				if (bit) {
-					u64 carry = bit_shift_left(*pResult, 1);
+					U64 carry = bit_shift_left(*pResult, 1);
 					if (carry || cmp(*pResult, mod) == 1) {
 						sub(*pResult, *pResult, mod);
 					}
@@ -981,7 +988,7 @@ struct BigInteger {
 		word_shift_left(num, mod.size);
 		div(num, mod, nullptr);
 
-		u64 inverse = digit_negative_inverse(mod.data[0]);
+		U64 inverse = digit_negative_inverse(mod.data[0]);
 
 		BigInteger result; result.init(num.cap);
 		assign(result, num);
@@ -991,19 +998,19 @@ struct BigInteger {
 		BigInteger* pNum = &num;
 		BigInteger* pTmp = &tmp;
 
-		u32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
+		U32 bitStart = 63 - _lzcnt_u64(power.data[power.size - 1]);
 		// First iteration is done by the assignment
 		bitStart--;
-		for (i32 i = power.size - 1; i >= 0; i--) {
-			u64 digit = power.data[i];
-			for (i32 j = bitStart; j >= 0; j--) {
+		for (I32 i = power.size - 1; i >= 0; i--) {
+			U64 digit = power.data[i];
+			for (I32 j = bitStart; j >= 0; j--) {
 				montgomery_mul(*pTmp, *pResult, *pResult, mod, inverse);
-				swap(pResult, pTmp);
+				swap(&pResult, &pTmp);
 
-				u64 bit = (digit >> j) & 1;
+				U64 bit = (digit >> j) & 1;
 				if (bit) {
 					montgomery_mul(*pTmp, *pNum, *pResult, mod, inverse);
-					swap(pResult, pTmp);
+					swap(&pResult, &pTmp);
 				}
 			}
 			bitStart = 63;
@@ -1025,20 +1032,20 @@ struct BigInteger {
 		BigInteger* squaresPtr = &squares;
 		BigInteger* numPtr = &num;
 
-		for (u32 i = 0; i < power.size; i++) {
-			u64 exp = power.data[i];
-			for (u32 j = 0; j < 64; j++) {
+		for (U32 i = 0; i < power.size; i++) {
+			U64 exp = power.data[i];
+			for (U32 j = 0; j < 64; j++) {
 				if (i == (power.size - 1) && exp == 0) {
 					break;
 				}
 				if (exp & 1) {
 					mul(*tmpPtr, *squaresPtr, *numPtr);
 					div(*tmpPtr, mod, nullptr);
-					swap(tmpPtr, numPtr);
+					swap(&tmpPtr, &numPtr);
 				}
 				mul(*tmpPtr, *squaresPtr, *squaresPtr);
 				div(*tmpPtr, mod, nullptr);
-				swap(tmpPtr, squaresPtr);
+				swap(&tmpPtr, &squaresPtr);
 				exp >>= 1;
 			}
 		}
@@ -1047,8 +1054,8 @@ struct BigInteger {
 		}
 	}
 
-	static void get_crypto_random(BigInteger& num, u32 byteCount) {
-		u64 randData[4];
+	static void get_crypto_random(BigInteger& num, U32 byteCount) {
+		U64 randData[4];
 		// 256 bits of real random data ought to be enough, right?
 		while (_rdrand64_step(&randData[0]) == 0);
 		while (_rdrand64_step(&randData[1]) == 0);
@@ -1056,21 +1063,21 @@ struct BigInteger {
 		while (_rdrand64_step(&randData[3]) == 0);
 		Keccak k{};
 		k.init();
-		k.absorb(reinterpret_cast<const u8*>(randData), 4 * sizeof(u64));
-		k.squeeze(reinterpret_cast<u8*>(num.data), byteCount);
-		num.size = (byteCount + 7) / sizeof(u64);
+		k.absorb(reinterpret_cast<const U8*>(randData), 4 * sizeof(U64));
+		k.squeeze(reinterpret_cast<U8*>(num.data), byteCount);
+		num.size = (byteCount + 7) / sizeof(U64);
 	}
 
-	static constexpr u32 NUM_TEST_PRIMES = 99;
-	static constexpr u64 SMALL_PRIME_NUMBERS[NUM_TEST_PRIMES]{
+	static constexpr U32 NUM_TEST_PRIMES = 99;
+	static constexpr U64 SMALL_PRIME_NUMBERS[NUM_TEST_PRIMES]{
 		3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
 		73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173,
 		179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281,
 		283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409,
 		419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
 	};
-	static constexpr u64 RABIN_MILLER_ITERATIONS = 8;
-	static constexpr u64 RABIN_MILLER_BASES[RABIN_MILLER_ITERATIONS]{ 2, 3, 5, 7, 11, 13, 17, 19 };
+	static constexpr U64 RABIN_MILLER_ITERATIONS = 8;
+	static constexpr U64 RABIN_MILLER_BASES[RABIN_MILLER_ITERATIONS]{ 2, 3, 5, 7, 11, 13, 17, 19 };
 
 	static bool primality_test(BigInteger& num) {
 		if (!(num.data[0] & 1)) {
@@ -1088,7 +1095,7 @@ struct BigInteger {
 
 		// Test first few primes up to a couple hundred
 		// TODO replace with a sieve
-		for (u32 i = 0; i < NUM_TEST_PRIMES; i++) {
+		for (U32 i = 0; i < NUM_TEST_PRIMES; i++) {
 			if (div_single_rem(num, SMALL_PRIME_NUMBERS[i]) == 0) {
 				return false;
 			}
@@ -1105,15 +1112,15 @@ struct BigInteger {
 		//std::cout << "Fermat pass\n";
 
 		// Miller rabin iterations
-		for (u32 i = 0; i < RABIN_MILLER_ITERATIONS; i++) {
+		for (U32 i = 0; i < RABIN_MILLER_ITERATIONS; i++) {
 			assign(millerNum, num);
 			millerNum.data[0] -= 1;
-			u64 trailingZeros = count_trailing_zeros(millerNum);
+			U64 trailingZeros = count_trailing_zeros(millerNum);
 			bit_shift_right(millerNum, trailingZeros);
 
 			assign(*basePtr, RABIN_MILLER_BASES[i]);
 			pow_mod_montgomery(*basePtr, millerNum, num);
-			for (u32 s = 0; s < trailingZeros; s++) {
+			for (U32 s = 0; s < trailingZeros; s++) {
 				mul(*millerTmpPtr, *basePtr, *basePtr);
 				div(*millerTmpPtr, num, nullptr);
 
@@ -1126,7 +1133,7 @@ struct BigInteger {
 					num.data[0]++;
 				}
 
-				swap(basePtr, millerTmpPtr);
+				swap(&basePtr, &millerTmpPtr);
 			}
 			if (!is_equal(*basePtr, 1)) {
 				return false;
@@ -1138,10 +1145,10 @@ struct BigInteger {
 		return true;
 	}
 
-	static void gen_large_prime(BigInteger& num, u32 bytes) {
+	static void gen_large_prime(BigInteger& num, U32 bytes) {
 		Keccak k;
 		k.make_secure_random();
-		k.squeeze(reinterpret_cast<u8*>(num.data), bytes);
+		k.squeeze(reinterpret_cast<U8*>(num.data), bytes);
 		num.size = (bytes + 7) / 8;
 		num.data[0] |= 1;
 
@@ -1155,7 +1162,7 @@ struct BigInteger {
 		BigInteger* millerTmpPtr = &millerTmp;
 
 		while (true) {
-			k.squeeze(reinterpret_cast<u8*>(num.data), bytes);
+			k.squeeze(reinterpret_cast<U8*>(num.data), bytes);
 			// Make odd
 			num.data[0] |= 1;
 			// Set top two bits so that this number will always be the correct number of bits long (if a 512 bit prime was requested, it will be a 512 bit number, not a 511 or less bit number)
@@ -1163,7 +1170,7 @@ struct BigInteger {
 			num.data[num.size - 1] |= 0b11000000ui64 << (((bytes - 1) & 7) * 8);
 			// Test first few primes up to a couple hundred
 			// TODO replace with a sieve
-			for (u32 i = 0; i < NUM_TEST_PRIMES; i++) {
+			for (U32 i = 0; i < NUM_TEST_PRIMES; i++) {
 				if (div_single_rem(num, SMALL_PRIME_NUMBERS[i]) == 0) {
 					goto composite;
 				}
@@ -1180,15 +1187,15 @@ struct BigInteger {
 			//std::cout << "Fermat pass\n";
 
 			// Miller rabin iterations
-			for (u32 i = 0; i < RABIN_MILLER_ITERATIONS; i++) {
+			for (U32 i = 0; i < RABIN_MILLER_ITERATIONS; i++) {
 				assign(millerNum, num);
 				millerNum.data[0] -= 1;
-				u64 trailingZeros = count_trailing_zeros(millerNum);
+				U64 trailingZeros = count_trailing_zeros(millerNum);
 				bit_shift_right(millerNum, trailingZeros);
 
 				assign(*basePtr, RABIN_MILLER_BASES[i]);
 				pow_mod_montgomery(*basePtr, millerNum, num);
-				for (u32 s = 0; s < trailingZeros; s++) {
+				for (U32 s = 0; s < trailingZeros; s++) {
 					mul(*millerTmpPtr, *basePtr, *basePtr);
 					div(*millerTmpPtr, num, nullptr);
 
@@ -1201,7 +1208,7 @@ struct BigInteger {
 						num.data[0]++;
 					}
 
-					swap(basePtr, millerTmpPtr);
+					swap(&basePtr, &millerTmpPtr);
 				}
 				if (!is_equal(*basePtr, 1)) {
 					goto composite;
@@ -1216,11 +1223,11 @@ struct BigInteger {
 		}
 	}
 
-	bool operator==(u64 ui) {
+	bool operator==(U64 ui) {
 		return !negative && size == 1 && ui == data[0];
 	}
 
-	bool operator!=(u64 ui) {
+	bool operator!=(U64 ui) {
 		return negative || size != 1 || ui != data[0];
 	}
 };

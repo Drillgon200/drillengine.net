@@ -5,8 +5,8 @@
 
 // Implemented from RFC 9110 and RFC 9112
 
-const char* HTTP_ERROR_OK = "200";
-const char* HTTP_ERROR_BAD_REQUEST = "400";
+#define HTTP_ERROR_OK "200"
+#define HTTP_ERROR_BAD_REQUEST "400"
 
 enum HTTPRequestMethod {
 	HTTP_METHOD_GET,
@@ -19,42 +19,67 @@ enum HTTPRequestMethod {
 	HTTP_METHOD_TRACE
 };
 
-#ifdef _DEBUG
-#define HTTP_VERIFY_RETURN(cond, errCode, ret) if(!(cond)) { errored = true; errorCode = errCode; __debugbreak(); return ret; }
-#else
+struct HTTPField {
+	const char* name;
+	Range value;
+
+	bool has_value() {
+		return value != Range{ 0, 0 };
+	}
+
+	void reset() {
+		value.reset();
+	}
+
+	void reset(const char* newName) {
+		name = newName;
+		value.reset();
+	}
+};
+
 #define HTTP_VERIFY_RETURN(cond, errCode, ret) if(!(cond)) { errored = true; errorCode = errCode; return ret; }
-#endif
+
 struct HTTPReader {
-	const char* src;
-	u32 length;
-	u32 pos;
-	b32 errored;
+	char* src;
+	U32 length;
+	U32 pos;
 	const char* errorCode;
-	b32 headerDone;
+	B8 errored;
+	B8 headerDone;
+	B8 readComplete;
+	B8 chunkedEncoding;
+	U32 contentOffset;
+	U32 contentLength;
+	U32 nextChunkLength;
 
-	void init(const char* source, u32 sourceLength) {
+	void init(char* source, U32 sourceLength) {
 		src = source;
 		length = sourceLength;
 		pos = 0;
-		errored = false;
 		errorCode = HTTP_ERROR_OK;
+		errored = false;
 		headerDone = false;
+		readComplete = false;
+		chunkedEncoding = false;
+		contentOffset = 0;
+		contentLength = 0;
+		nextChunkLength = 0;
 	}
 
-	void set_read_data(const char* source, u32 sourceLength) {
-		src = source;
+	void set_read_data(void* source, U32 sourceLength) {
+		src = reinterpret_cast<char*>(source);
 		length = sourceLength;
 		pos = 0;
 	}
 
-	b32 is_crlf(u32 pos) {
+	B32 is_crlf(U32 pos) {
 		if (pos >= (length - 1)) {
 			return false;
 		}
 		return src[pos] == '\r' && src[pos + 1] == '\n';
 	}
 
-	b32 consume_crlf() {
+	B32 consume_crlf() {
 		if (pos < (length - 1) && src[pos] == '\r' && src[pos + 1] == '\n') {
 			pos += 2;
 			return true;
@@ -63,22 +88,22 @@ struct HTTPReader {
 		}
 	}
 
-	void skip_whitespace(u32 end) {
+	void skip_whitespace(U32 end) {
 		while (pos < end && is_whitespace(src[pos])) {
 			pos++;
 		}
 	}
 
-	u32 skip_whitespace_reverse(i32 endPos) {
+	U32 skip_whitespace_reverse(I32 endPos) {
 		while (endPos >= 0 && is_whitespace(src[endPos])) {
 			endPos--;
 		}
 		return endPos;
 	}
 
-	b32 get_line_length(u32* lengthOut) {
-		u32 lineLength = 0;
-		while (!is_crlf(pos + lineLength) && i32(pos + lineLength) < (i32(length) - 1)) {
+	B32 get_line_length(U32* lengthOut) {
+		U32 lineLength = 0;
+		while (!is_crlf(pos + lineLength) && I32(pos + lineLength) < (I32(length) - 1)) {
 			lineLength++;
 		}
 		if (!is_crlf(pos + lineLength)) {
@@ -90,8 +115,8 @@ struct HTTPReader {
 		return true;
 	}
 
-	b32 src_begin_match(const char* cmpNullTerminated) {
-		u32 cmpPos = 0;
+	B32 src_begin_match(const char* cmpNullTerminated) {
+		U32 cmpPos = 0;
 		while (cmpPos + pos < length && cmpNullTerminated[cmpPos] != '\0' && src[pos + cmpPos] == cmpNullTerminated[cmpPos]) {
 			cmpPos++;
 		}
@@ -103,7 +128,7 @@ struct HTTPReader {
 		}
 	}
 
-	b32 parse_verify_http_version() {
+	B32 parse_verify_http_version() {
 		// Accept versions in the 1.x range
 		if (!src_begin_match("HTTP/1.")) {
 			return false;
@@ -115,8 +140,8 @@ struct HTTPReader {
 		return true;
 	}
 
-	b32 read_request_header(HTTPRequestMethod* requestMethod, Range* requestTarget) {
-		u32 lineEnd = 0;
+	B32 read_request_header(HTTPRequestMethod* requestMethod, Range* requestTarget) {
+		U32 lineEnd = 0;
 		if (!get_line_length(&lineEnd)) {
 			return false;
 		}
@@ -162,8 +187,8 @@ struct HTTPReader {
 		return consume_crlf();
 	}
 
-	b32 read_response_header(Range* responseCode, Range* reasonPhrase) {
-		u32 lineEnd = 0;
+	B32 read_response_header(Range* responseCode, Range* reasonPhrase) {
+		U32 lineEnd = 0;
 		if (!get_line_length(&lineEnd)) {
 			return false;
 		}
@@ -187,7 +212,7 @@ struct HTTPReader {
 		return consume_crlf();
 	}
 
-	b32 check_response_is(const char* httpcode) {
+	B32 check_response_is(const char* httpcode) {
 		Range responseCode;
 		Range reason;
 		if (read_response_header(&responseCode, &reason)) {
@@ -201,12 +226,13 @@ struct HTTPReader {
 		return false;
 	}
 
-	b32 read_header_field(Range* fieldName, Range* fieldValue) {
+	B32 read_header_field(Range* fieldName, Range* fieldValue) {
 		if (consume_crlf()) {
+			contentOffset = pos;
 			headerDone = true;
 			return false;
 		}
-		u32 lineEnd = 0;
+		U32 lineEnd = 0;
 		if (!get_line_length(&lineEnd)) {
 			return false;
 		}
@@ -229,120 +255,158 @@ struct HTTPReader {
 		pos = lineEnd + 2;
 		return true;
 	}
-};
-#undef HTTP_VERIFY_RETURN
 
-struct HTTPField {
-	const char* name;
-	Range value;
-
-	b32 has_value() {
-		return value != Range{ 0, 0 };
-	}
-
-	void reset() {
-		value.reset();
-	}
-};
-
-#define HTTP_READ_FAILED -1
-#define HTTP_READ_NO_CONTENT_LENGTH -2
-
-/*
-i32 http_read_full_content(TLSClient& connection, char** responseData, HTTPField* fields = nullptr, u32 numFields = 0) {
-	HTTPReader http;
-	http.init(connection.receiveBuffer, connection.receiveBufferPos);
-	u32 lastReceiveSize = 0;
-	i32 contentLength = HTTP_READ_NO_CONTENT_LENGTH;
-	while (true) {
-		connection.receive_more_than(lastReceiveSize);
-		lastReceiveSize = http.length = connection.receiveBufferPos;
-		if (http.pos == 0 && http.get_line_length(nullptr) && !http.check_response_is("xxx")) {
-			return HTTP_READ_FAILED;
+	void try_read_more_data(HTTPField* fields = nullptr, U32 numFields = 0) {
+		if (errored || readComplete) {
+			return;
 		}
-		if (!http.headerDone) {
+		if (pos == 0 && get_line_length(nullptr) && !check_response_is("xxx")) {
+			errorCode = HTTP_ERROR_BAD_REQUEST;
+			errored = true;
+			return;
+		}
+		if (pos == 0) {
+			// Haven't yet parsed the first line
+			return;
+		}
+		if (!headerDone) {
 			Range fieldName;
 			Range fieldValue;
-			while (!http.errored && http.read_header_field(&fieldName, &fieldValue)) {
-				if (fieldName.data_range(http.src) == "Content-Length") {
-					contentLength = fieldValue.data_range(http.src).parse_uint(I32_MAX);
-				} else if (fieldName.data_range(http.src) == "Transfer-Encoding") {
-					//TODO deal with chunked format
-					return HTTP_READ_FAILED;
+			while (!errored && read_header_field(&fieldName, &fieldValue)) {
+				if (fieldName.data_range(src) == "Content-Length") {
+					contentLength = fieldValue.data_range(src).parse_uint(I32_MAX);
+				} else if (fieldName.data_range(src) == "Transfer-Encoding") {
+					chunkedEncoding = true;
+					nextChunkLength = 0;
 				}
-				for (u32 i = 0; i < numFields; i++) {
-					if (fieldName.data_range(http.src) == fields[i].name) {
+				for (U32 i = 0; i < numFields; i++) {
+					if (fieldName.data_range(src) == fields[i].name) {
 						if (fields[i].has_value()) {
 							// Duplicate field, illegal (we're not dealing with any comma separated lists)
-							return HTTP_READ_FAILED;
+							errorCode = HTTP_ERROR_BAD_REQUEST;
+							errored = true;
+							return;
 						}
 						fields[i].value = fieldValue;
 					}
 				}
 			}
 		}
-		if (http.headerDone && (connection.receiveBufferCap >= contentLength || contentLength == HTTP_READ_NO_CONTENT_LENGTH)) {
-			*responseData = connection.receiveBuffer + http.pos;
-			break;
+		if (headerDone) {
+			if (chunkedEncoding) {
+				bool shouldParseNext = true;
+				while (shouldParseNext) {
+					shouldParseNext = false;
+					if (nextChunkLength == 0) {
+						// Need to read a chunk length
+						U32 lineLength = 0;
+						if (get_line_length(&lineLength)) {
+							nextChunkLength = 0;
+							const char* lengthStr = src + pos;
+							while (*lengthStr != '\r' && *lengthStr != ';') { // Extensions start with semicolon, ignore them
+								char c = *lengthStr++;
+								if (is_hex_digit(c)) {
+									if (nextChunkLength > U32_MAX >> 4) {
+										// Potential overflow
+										errorCode = HTTP_ERROR_BAD_REQUEST;
+										errored = true;
+										return;
+									}
+									nextChunkLength <<= 4;
+									nextChunkLength += c > '9' ? (c | 0b100000) - 'a' + 10 : c - '0';
+								} else {
+									errorCode = HTTP_ERROR_BAD_REQUEST;
+									errored = true;
+									return;
+								}
+							}
+							pos += lineLength;
+							consume_crlf();
+							if (nextChunkLength == 0) {
+								readComplete = true;
+							} else {
+								shouldParseNext = true;
+							}
+						}
+					} else {
+						// Need to read nextChunkLength bytes before the next chunk length
+						if (length - pos >= nextChunkLength + 2) { // + 2 for the CRLF after the chunk
+							memmove(src + contentOffset + contentLength, src + pos, nextChunkLength);
+							contentLength += nextChunkLength;
+							pos += nextChunkLength;
+							nextChunkLength = 0;
+							consume_crlf();
+							shouldParseNext = true;
+						}
+					}
+				}
+			} else {
+				if (length - contentOffset >= contentLength) {
+					readComplete = true;
+				}
+			}
 		}
 	}
-	return contentLength;
-}
-*/
+};
+#undef HTTP_VERIFY_RETURN
 
 struct HTTPResource {
 	const char* dataDirectory;
 	const void* dataToServe;
-	u32 dataSize;
+	U32 dataDirectorySize;
+	U32 dataSize;
 };
 
 struct HTTPConnection {
-	static constexpr u32 receiveBufferCap = 1024;
-	u8 receiveBuffer[receiveBufferCap];
-	u32 receivePos;
+	static constexpr U32 receiveBufferCap = 1024;
+	Byte receiveBuffer[receiveBufferCap];
+	U32 receivePos;
+	U32 sendLength;
+	const void* sendResource;
 	HTTPReader httpReader;
 	HTTPRequestMethod requestMethod;
 	Range requestTarget;
-	u32 tcpConnectionIdx;
+	U32 tcpConnection;
 };
 
 // Not a very good HTTP server implementation, but I'm only using it for certificate renewal, so I don't think it needs to be good (unlike the main server)
 struct HTTPServer {
-	static constexpr u32 resourceCap = 16;
+	static constexpr U32 resourceCap = 16;
 	HTTPResource resources[resourceCap];
-	u32 resourceCount;
-	static constexpr u32 connectionCap = 16;
+	U32 resourceCount;
+	static constexpr U32 connectionCap = 16;
 	HTTPConnection connections[connectionCap];
-	u32 connectionCount;
-	u32 responseCount;
-	b32 open;
+	U32 connectionCount;
+	U32 responseCount;
+	B32 open;
 
 	void init() {
 		open = false;
 		resourceCount = 0;
 		responseCount = 0;
 		connectionCount = 0;
-		for (u32 i = 0; i < connectionCap; i++) {
-			connections[i].tcpConnectionIdx = TCP_CONNECTION_BLOCK_INVALID_IDX;
+		for (U32 i = 0; i < connectionCap; i++) {
+			connections[i].tcpConnection = TCP_CONNECTION_BLOCK_INVALID_IDX;
 		}
 		open = true;
 	}
 
 	void close() {
+		close_connections();
 		open = false;
 	}
 
 	void close_client(HTTPConnection& client) {
-		if (client.tcpConnectionIdx == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+		if (client.tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
 			return;
 		}
-		g_syscallProc(SYSCALL_TCP_CLOSE, client.tcpConnectionIdx);
-		client.tcpConnectionIdx = TCP_CONNECTION_BLOCK_INVALID_IDX;
+		g_syscallProc(SYSCALL_TCP_CLOSE, client.tcpConnection);
+		client.tcpConnection = TCP_CONNECTION_BLOCK_INVALID_IDX;
 		connectionCount--;
 	}
 
 	void close_connections() {
-		for (u32 i = 0; i < connectionCap; i++) {
+		for (U32 i = 0; i < connectionCap; i++) {
 			close_client(connections[i]);
 		}
 		connectionCount = 0;
@@ -357,75 +421,77 @@ struct HTTPServer {
 
 	void clear_resources() {
 		resourceCount = 0;
+		for (U32 i = 0; i < connectionCount; i++) {
+			connections[i].sendLength = 0;
+			connections[i].sendResource = nullptr;
+		}
 	}
 
-	void accept_new_connection(u32 tcpConnectionIdx) {
-		for (u32 i = 0; i < connectionCap; i++) {
+	bool accept_new_connection(U32 tcpConnection) {
+		if (!open) {
+			return false;
+		}
+		for (U32 i = 0; i < connectionCap; i++) {
 			HTTPConnection& client = connections[i];
-			if (client.tcpConnectionIdx != TCP_CONNECTION_BLOCK_INVALID_IDX) {
+			if (client.tcpConnection != TCP_CONNECTION_BLOCK_INVALID_IDX) {
 				continue;
 			}
 			client.receivePos = 0;
-			client.tcpConnectionIdx = tcpConnectionIdx;
+			client.sendLength = 0;
+			client.sendResource = nullptr;
+			client.tcpConnection = tcpConnection;
 			client.httpReader.init(reinterpret_cast<char*>(&client.receiveBuffer[0]), 0);
 			connectionCount++;
-			g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("Accepted new connection!\n"));
-			break;
+			return true;
 		}
+		return false;
 	}
 
 	void receive_data(HTTPConnection& connection) {
-		if (connection.tcpConnectionIdx == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+		if (connection.tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
 			return;
 		}
-		print("Trying to receive data.\n");
-		SyscallTCPReceiveArgs receiveArgs;
-		receiveArgs.bufferAddress = reinterpret_cast<u64>(&connection.receiveBuffer[connection.receivePos]);
-		receiveArgs.bufferSize = HTTPConnection::receiveBufferCap - connection.receivePos;
-		receiveArgs.blockIndex = connection.tcpConnectionIdx;
-		i64 received = g_syscallProc(SYSCALL_TCP_RECEIVE, reinterpret_cast<u64>(&receiveArgs));
-		if (received >= 0) {
-			connection.receivePos += received;
-			print("Read data from tcp.\n");
-			print_num(received);
-		} else { // received < 0
+		SyscallTCPReceiveArgs recvArgs;
+		recvArgs.bufferAddress = U64(&connection.receiveBuffer[connection.receivePos]);
+		recvArgs.bufferSize = HTTPConnection::receiveBufferCap - connection.receivePos;
+		recvArgs.blockIndex = connection.tcpConnection;
+		I64 dataInBuffer = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
+		if (dataInBuffer >= 0) {
+			connection.receivePos += dataInBuffer;
+		} else { // dataInBuffer < 0
 			close_client(connection);
 		}
 	}
 
-	void send_data_blocking(HTTPConnection& client, const void* vdata, u32 dataLength) {
-		if (client.tcpConnectionIdx == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+	void try_send_remaining_data(HTTPConnection& client) {
+		if (client.tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX || client.sendLength == 0) {
 			return;
 		}
-		const char* data = reinterpret_cast<const char*>(vdata);
-		while (dataLength > 0 && client.tcpConnectionIdx != TCP_CONNECTION_BLOCK_INVALID_IDX) {
-			SyscallTCPSendArgs sendArgs;
-			sendArgs.bufferAddress = reinterpret_cast<u64>(data);
-			sendArgs.bufferSize = dataLength;
-			sendArgs.blockIndex = client.tcpConnectionIdx;
-			i64 sent = g_syscallProc(SYSCALL_TCP_SEND, reinterpret_cast<u64>(&sendArgs));
-			if (sent >= 0) {
-				data += sent;
-				dataLength -= sent;
-			} else { // sent < 0
-				close_client(client);
-			}
-			if (dataLength > 0 && client.tcpConnectionIdx != TCP_CONNECTION_BLOCK_INVALID_IDX) {
-				g_syscallProc(SYSCALL_SHUTDOWN, SYSCALL_SHUTDOWN_CODE_HLT);
-			}
+		const char* data = reinterpret_cast<const char*>(client.sendResource);
+		SyscallTCPSendArgs sendArgs;
+		sendArgs.bufferAddress = U64(data);
+		sendArgs.bufferSize = client.sendLength;
+		sendArgs.blockIndex = client.tcpConnection;
+		I64 dataAccepted = I64(g_syscallProc(SYSCALL_TCP_SEND, U64(&sendArgs)));
+		if (dataAccepted >= 0) {
+			data += dataAccepted;
+			client.sendResource = data;
+			client.sendLength -= dataAccepted;
+		} else { // sent < 0
+			close_client(client);
 		}
 	}
 
-	void send_remaining_data(HTTPConnection& connection) {
-		if (connection.tcpConnectionIdx == TCP_CONNECTION_BLOCK_INVALID_IDX) {
-			return;
-		}
+	void try_send_data(HTTPConnection& client, const void* vdata, U32 dataLength) {
+		client.sendResource = vdata;
+		client.sendLength = dataLength;
+		try_send_remaining_data(client);
 	}
 
 	void take_requests() {
-		for (u32 i = 0; i < connectionCap; i++) {
+		for (U32 i = 0; i < connectionCap; i++) {
 			HTTPConnection& client = connections[i];
-			if (client.tcpConnectionIdx == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+			if (client.tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
 				continue;
 			}
 
@@ -434,13 +500,13 @@ struct HTTPServer {
 			if (client.httpReader.pos == 0 && !client.httpReader.read_request_header(&client.requestMethod, &client.requestTarget)) {
 				if (client.receivePos == HTTPConnection::receiveBufferCap) {
 					response = "HTTP/1.1 413 Payload Too Large\r\n\r\n";
-					g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP client payload too large\n"));
-					send_data_blocking(client, response, strlen(response));
+					print("HTTP client payload too large\n");
+					try_send_data(client, response, strlen(response));
 					close_client(client);
 				} else if (client.httpReader.errored) {
 					response = "HTTP/1.1 400 Bad Request\r\n\r\n";
-					g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP client bad request\n"));
-					send_data_blocking(client, response, strlen(response));
+					print("HTTP client bad request\n");
+					try_send_data(client, response, strlen(response));
 					close_client(client);
 				}
 				continue;
@@ -453,13 +519,13 @@ struct HTTPServer {
 			if (!client.httpReader.headerDone) {
 				if (client.httpReader.errored) {
 					response = "HTTP/1.1 400 Bad Request\r\n\r\n";
-					g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP client bad request\n"));
-					send_data_blocking(client, response, strlen(response));
+					print("HTTP client bad request\n");
+					try_send_data(client, response, strlen(response));
 					close_client(client);
 				} else if (client.receivePos == HTTPConnection::receiveBufferCap) {
 					response = "HTTP/1.1 413 Payload Too Large\r\n\r\n";
-					g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP client payload too large\n"));
-					send_data_blocking(client, response, strlen(response));
+					print("HTTP client payload too large\n");
+					try_send_data(client, response, strlen(response));
 					close_client(client);
 				}
 				continue;
@@ -471,35 +537,39 @@ struct HTTPServer {
 
 			if (client.requestMethod != HTTP_METHOD_GET && client.requestMethod != HTTP_METHOD_HEAD) {
 				response = "HTTP/1.1 501 Not Implemented\r\n\r\n";
-				g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP response not implemented\n"));
-				send_data_blocking(client, response, strlen(response));
+				print("HTTP response not implemented\n");
+				try_send_data(client, response, strlen(response));
 				close_client(client);
 				continue;
 			}
-			for (u32 j = 0; j < resourceCount; j++) {
+			for (U32 j = 0; j < resourceCount; j++) {
 				HTTPResource& resource = resources[j];
-				if (client.requestTarget.data_range(client.httpReader.src) != resource.dataDirectory) {
+				if (client.requestTarget.data_range(client.httpReader.src) != DataRange{ resource.dataDirectory, 0, resource.dataDirectorySize }) {
 					continue;
 				}
-				g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP serving response\n"));
+				print("HTTP serving response\n");
 				char data[1024];
 				response = "HTTP/1.1 200 OK\r\nContent-Length: ";
-				u32 responseLength = strlen(response);
+				U32 responseLength = strlen(response);
 				memcpy(data, response, responseLength);
-				i32 numberEncodedLength = ascii_base10_encode_u32(data + responseLength, 1024 - responseLength, resource.dataSize);
+				I32 numberEncodedLength = ascii_base10_encode_u32(data + responseLength, 1024 - responseLength, resource.dataSize);
 				memcpy(&data[responseLength + numberEncodedLength], "\r\n\r\n", 4);
-				send_data_blocking(client, data, responseLength + numberEncodedLength + 4);
+				try_send_data(client, data, responseLength + numberEncodedLength + 4);
+				if (client.sendLength != 0) {
+					close_client(client);
+					continue;
+				}
 				if (client.requestMethod == HTTP_METHOD_GET) {
-					send_data_blocking(client, resource.dataToServe, resource.dataSize);
+					try_send_data(client, resource.dataToServe, resource.dataSize);
 					responseCount++;
 				}
 				close_client(client);
-				g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("Served data to client\n"));
+				print("Served data to client\n");
 				goto foundResource;
 			}
-			g_syscallProc(SYSCALL_DEBUG_PRINT, reinterpret_cast<u64>("HTTP serving not found\n"));
+			print("HTTP serving not found\n");
 			response = "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found";
-			send_data_blocking(client, response, strlen(response));
+			try_send_data(client, response, strlen(response));
 		foundResource:;
 			memmove(client.receiveBuffer, client.receiveBuffer + client.httpReader.pos, client.receivePos - client.httpReader.pos);
 			client.receivePos -= client.httpReader.pos;
@@ -541,12 +611,12 @@ struct HTTPURL {
 	Range search;
 
 	const char* src;
-	u32 length;
-	u32 pos;
+	U32 length;
+	U32 pos;
 
 #define URL_VERIFY(cond) if (!(cond)) { return false; }
 
-	b32 match_char(char c) {
+	bool match_char(char c) {
 		if (pos < length && src[pos] == c) {
 			pos++;
 			return true;
@@ -554,9 +624,9 @@ struct HTTPURL {
 		return false;
 	}
 
-	b32 match_string(const char* str) {
+	bool match_string(const char* str) {
 		// match char until null character
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		while (pos < length && str[0] != '\0' && str[0] == src[pos]) {
 			pos++, str++;
 		}
@@ -567,7 +637,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_digit() {
+	bool match_digit() {
 		// '0'-'9'
 		if (pos < length && is_digit(src[pos])) {
 			pos++;
@@ -576,14 +646,14 @@ struct HTTPURL {
 		return false;
 	}
 
-	b32 match_digits() {
+	bool match_digits() {
 		// 1*digit
 		URL_VERIFY(match_digit());
-		while (match_digit());
+		while(match_digit());
 		return true;
 	}
 
-	b32 match_alpha() {
+	bool match_alpha() {
 		// 'a'-'z' | 'A'-'Z'
 		if (pos < length && is_alpha(src[pos])) {
 			pos++;
@@ -592,7 +662,7 @@ struct HTTPURL {
 		return false;
 	}
 
-	b32 match_alphadigit() {
+	bool match_alphadigit() {
 		// alpha | digit
 		if (pos < length && is_alphanumeric(src[pos])) {
 			pos++;
@@ -601,7 +671,7 @@ struct HTTPURL {
 		return false;
 	}
 
-	b32 match_hexdigit() {
+	bool match_hexdigit() {
 		// digit | 'A'-'F' | 'a'-'f'
 		if (pos < length && is_hex_digit(src[pos])) {
 			pos++;
@@ -610,33 +680,33 @@ struct HTTPURL {
 		return false;
 	}
 
-	b32 match_safe() {
+	bool match_safe() {
 		// "$" | "-" | "_" | "." | "+"
 		return
 			match_char('$') ||
-			match_char('-') ||
-			match_char('_') ||
-			match_char('.') ||
+			match_char('-') || 
+			match_char('_') || 
+			match_char('.') || 
 			match_char('+');
 	}
 
-	b32 match_extra() {
+	bool match_extra() {
 		// "!" | "*" | "'" | "(" | ")" | ","
 		return
 			match_char('!') ||
-			match_char('*') ||
-			match_char('\'') ||
-			match_char('(') ||
+			match_char('*') || 
+			match_char('\'') || 
+			match_char('(') || 
 			match_char(')') ||
 			match_char(',');
 	}
 
-	b32 match_unreserved() {
+	bool match_unreserved() {
 		// alpha | digit | safe | extra
 		return match_alpha() || match_digit() || match_safe() || match_extra();
 	}
 
-	b32 match_escape() {
+	bool match_escape() {
 		// "%" hex hex
 		URL_VERIFY(match_char('%'));
 		URL_VERIFY(match_hexdigit());
@@ -644,15 +714,15 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_uchar() {
+	bool match_uchar() {
 		// unreserved | escape
 		return match_unreserved() || match_escape();
 	}
 
-	b32 match_domainlabel() {
+	bool match_domainlabel() {
 		// alphadigit | alphadigit *[ alphadigit | "-" ] alphadigit
 		URL_VERIFY(match_alphadigit());
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		while (match_alphadigit() || match_char('-'));
 		if (src[pos - 1] == '-') {
 			// The rule is either match one alphadigit or alphadigits with either alphadigits or dashes in the middle. If the end character was a dash, go back to the first part of the rule
@@ -661,11 +731,11 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_toplabel() {
+	bool match_toplabel() {
 		// alpha | alpha *[ alphadigit | "-" ] alphadigit
 		// toplabel is the same as domainlabel, but it can't start with a number
 		URL_VERIFY(match_alpha());
-		u32 prevPos = pos;
+		U32 prevPos = pos;
 		while (match_alphadigit() || match_char('-'));
 		if (src[pos - 1] == '-') {
 			// Same as above
@@ -674,10 +744,10 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_hostname() {
+	bool match_hostname() {
 		// *[ domainlabel "." ] toplabel
-		u32 prevPos = pos;
-		u32 prevLabel = pos;
+		U32 prevPos = pos;
+		U32 prevLabel = pos;
 		while (match_domainlabel()) {
 			if (!match_char('.')) {
 				pos = prevLabel;
@@ -692,7 +762,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_hostnumber() {
+	bool match_hostnumber() {
 		// digits "." digits "." digits "." digits
 		URL_VERIFY(match_digits());
 		URL_VERIFY(match_char('.'));
@@ -704,12 +774,12 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_host() {
+	bool match_host() {
 		// hostname | hostnumber
 		return match_hostname() || match_hostnumber();
 	}
 
-	b32 parse_hostport() {
+	bool parse_hostport() {
 		// host [ ":" port ]
 		hostName.start = pos;
 		URL_VERIFY(match_host());
@@ -724,7 +794,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_hsegment() {
+	bool match_hsegment() {
 		// *[ uchar | ";" | ":" | "@" | "&" | "=" ]
 		while (
 			match_char(';') ||
@@ -737,7 +807,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_hpath() {
+	bool match_hpath() {
 		// hsegment *[ "/" hsegment ]
 		match_hsegment();
 		while (match_char('/')) {
@@ -746,7 +816,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 match_search() {
+	bool match_search() {
 		// Same as hsegment
 		// *[ uchar | ";" | ":" | "@" | "&" | "=" ]
 		while (
@@ -760,7 +830,7 @@ struct HTTPURL {
 		return true;
 	}
 
-	b32 parse(const char* url, u32 urlLength) {
+	bool parse(const char* url, U32 urlLength) {
 		src = url;
 		length = urlLength;
 		pos = 0;

@@ -42,16 +42,16 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
     <SpectreMitigation>false</SpectreMitigation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>MultiByte</CharacterSet>
     <SpectreMitigation>false</SpectreMitigation>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -123,8 +123,12 @@
       <StringPooling>false</StringPooling>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
-      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <SupportJustMyCode>false</SupportJustMyCode>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <OmitDefaultLibName>true</OmitDefaultLibName>
+      <AdditionalOptions>/Gs999999999 %(AdditionalOptions)</AdditionalOptions>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -153,9 +157,11 @@
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <WholeProgramOptimization>false</WholeProgramOptimization>
-      <DebugInformationFormat>OldStyle</DebugInformationFormat>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <CallingConvention>VectorCall</CallingConvention>
       <AdditionalOptions>/Gs999999999 %(AdditionalOptions)</AdditionalOptions>
+      <EnableFiberSafeOptimizations>false</EnableFiberSafeOptimizations>
+      <OmitDefaultLibName>true</OmitDefaultLibName>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -176,6 +182,7 @@
     <ClInclude Include="ASN1.h" />
     <ClInclude Include="BigInteger.h" />
     <ClInclude Include="CLibDefs.h" />
+    <ClInclude Include="CommandMode.h" />
     <ClInclude Include="CryptoHash.h" />
     <ClInclude Include="ECC.h" />
     <ClInclude Include="CryptoSignature.h" />
@@ -183,8 +190,13 @@
     <ClInclude Include="JSON.h" />
     <ClInclude Include="PondOS.h" />
     <ClInclude Include="RSA.h" />
+    <ClInclude Include="SerializeTools.h" />
     <ClInclude Include="TLS.h" />
     <ClInclude Include="Util.h" />
+    <ClInclude Include="X509.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="SerializeToolsPowerOf5Table.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -13,8 +13,6 @@ extern "C" {
 	char* strcpy(char* _Destination, char const* _Source);
 };
 
-// For some reason these functions fail to link in release mode but not in debug mode?
-#ifdef NDEBUG
 
 #pragma function(memcpy)
 void* __cdecl memcpy(void* dst, const void* src, unsigned long long count) {
@@ -98,4 +96,3 @@ int __cdecl memcmp(const void* m1, const void* m2, unsigned long long n) {
 	return diff;
 }
 
-#endif

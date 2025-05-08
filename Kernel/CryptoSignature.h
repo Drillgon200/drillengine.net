@@ -12,15 +12,15 @@
 //	digestAlgorithm AlgorithmIdentifier,
 //	digest OCTET STRING
 // }
-const u8 PKCS_HASH_MD2_DER[]{ 0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x02, 0x05, 0x00, 0x04, 0x10 };
-const u8 PKCS_HASH_MD5_DER[]{ 0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x05, 0x05, 0x00, 0x04, 0x10 };
-const u8 PKCS_HASH_SHA1_DER[]{ 0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14 };
-const u8 PKCS_HASH_SHA224_DER[]{ 0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05, 0x00, 0x04, 0x1c };
-const u8 PKCS_HASH_SHA256_DER[]{ 0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20 };
-const u8 PKCS_HASH_SHA384_DER[]{ 0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30 };
-const u8 PKCS_HASH_SHA512_DER[]{ 0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40 };
-const u8 PKCS_HASH_SHA512_224_DER[]{ 0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x05, 0x05, 0x00, 0x04, 0x1c };
-const u8 PKCS_HASH_SHA512_256_DER[]{ 0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x06, 0x05, 0x00, 0x04, 0x20 };
+const U8 PKCS_HASH_MD2_DER[]{ 0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x02, 0x05, 0x00, 0x04, 0x10 };
+const U8 PKCS_HASH_MD5_DER[]{ 0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x05, 0x05, 0x00, 0x04, 0x10 };
+const U8 PKCS_HASH_SHA1_DER[]{ 0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14 };
+const U8 PKCS_HASH_SHA224_DER[]{ 0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05, 0x00, 0x04, 0x1c };
+const U8 PKCS_HASH_SHA256_DER[]{ 0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20 };
+const U8 PKCS_HASH_SHA384_DER[]{ 0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30 };
+const U8 PKCS_HASH_SHA512_DER[]{ 0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40 };
+const U8 PKCS_HASH_SHA512_224_DER[]{ 0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x05, 0x05, 0x00, 0x04, 0x1c };
+const U8 PKCS_HASH_SHA512_256_DER[]{ 0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x06, 0x05, 0x00, 0x04, 0x20 };
 
 // RSA signature primative (exponent key form)
 inline bool rsasp1(BigInteger& messageRepresentative, BigInteger& privateKeyExponent, BigInteger& privateKeyModulo) {
@@ -65,108 +65,108 @@ inline bool rsavp1(BigInteger& signatureRepresentative, BigInteger& publicKeyExp
 	return true;
 }
 
-inline void mgf1_sha256_add_mask(void* mask, u32 maskLength, const void* mgfSeed, u32 seedLength) {
-	u32 hashLength = SHA256_HASH_SIZE;
-	u32 loopEnd = (maskLength + hashLength - 1) / hashLength;
+inline void mgf1_sha256_add_mask(void* mask, U32 maskLength, const void* mgfSeed, U32 seedLength) {
+	U32 hashLength = SHA256_HASH_SIZE;
+	U32 loopEnd = (maskLength + hashLength - 1) / hashLength;
 	SHA256 mgfHash;
 	mgfHash.init();
 	mgfHash.update(mgfSeed, seedLength);
 	SHA256 sha;
-	for (u32 i = 0; i < loopEnd; i++) {
+	for (U32 i = 0; i < loopEnd; i++) {
 		sha.copy_from(mgfHash);
-		u8 counterData[4];
+		U8 counterData[4];
 		counterData[0] = i >> 24;
 		counterData[1] = (i >> 16) & 0xFF;
 		counterData[2] = (i >> 8) & 0xFF;
 		counterData[3] = i & 0xFF;
 		sha.update(counterData, 4);
-		u32 outputLength = min(maskLength, hashLength);
+		U32 outputLength = min(maskLength, hashLength);
 		sha.digest();
-		for (u32 i = 0; i < outputLength; i++) {
-			reinterpret_cast<u8*>(mask)[i] ^= reinterpret_cast<u8*>(sha.state)[i];
+		for (U32 i = 0; i < outputLength; i++) {
+			reinterpret_cast<U8*>(mask)[i] ^= reinterpret_cast<U8*>(sha.state)[i];
 		}
 		maskLength -= outputLength;
-		mask = reinterpret_cast<u8*>(mask) + outputLength;
+		mask = reinterpret_cast<U8*>(mask) + outputLength;
 	}
 }
 
-inline void emsa_pss_encode_sha256(void* encodedMessage, u32 encodedMessageBits, const void* message, u32 messageLength, Keccak& random) {
-	const u32 hashLength = SHA256_HASH_SIZE;
-	const u32 saltLength = hashLength;
-	u32 encodedMessageLength = (encodedMessageBits + 7) / 8;
+inline void emsa_pss_encode_sha256(void* encodedMessage, U32 encodedMessageBits, const void* message, U32 messageLength, Keccak& random) {
+	const U32 hashLength = SHA256_HASH_SIZE;
+	const U32 saltLength = hashLength;
+	U32 encodedMessageLength = (encodedMessageBits + 7) / 8;
 
-	u8 messageHash[hashLength];
+	U8 messageHash[hashLength];
 	sha256(messageHash, message, messageLength);
 
-	u8 salt[saltLength];
+	U8 salt[saltLength];
 	random.squeeze(salt, saltLength);
 
-	u8 messagePrime[8 + hashLength + saltLength];
+	U8 messagePrime[8 + hashLength + saltLength];
 	memset(messagePrime, 0, 8);
 	memcpy(messagePrime + 8, messageHash, hashLength);
 	memcpy(messagePrime + 8 + hashLength, salt, saltLength);
 
 	sha256(messageHash, messagePrime, 8 + hashLength + saltLength);
 
-	u32 emZeroPadLength = encodedMessageLength - saltLength - hashLength - 2;
+	U32 emZeroPadLength = encodedMessageLength - saltLength - hashLength - 2;
 	memset(encodedMessage, 0, emZeroPadLength);
-	reinterpret_cast<u8*>(encodedMessage)[emZeroPadLength] = 0x01;
-	memcpy(reinterpret_cast<u8*>(encodedMessage) + emZeroPadLength + 1, salt, saltLength);
+	reinterpret_cast<U8*>(encodedMessage)[emZeroPadLength] = 0x01;
+	memcpy(reinterpret_cast<U8*>(encodedMessage) + emZeroPadLength + 1, salt, saltLength);
 	mgf1_sha256_add_mask(encodedMessage, encodedMessageLength - hashLength - 1, messageHash, hashLength);
-	reinterpret_cast<u8*>(encodedMessage)[0] &= 0xFF >> (encodedMessageLength * 8 - encodedMessageBits);
-	memcpy(reinterpret_cast<u8*>(encodedMessage) + (encodedMessageLength - hashLength - 1), messageHash, hashLength);
-	reinterpret_cast<u8*>(encodedMessage)[encodedMessageLength - 1] = 0xBC;
+	reinterpret_cast<U8*>(encodedMessage)[0] &= 0xFF >> (encodedMessageLength * 8 - encodedMessageBits);
+	memcpy(reinterpret_cast<U8*>(encodedMessage) + (encodedMessageLength - hashLength - 1), messageHash, hashLength);
+	reinterpret_cast<U8*>(encodedMessage)[encodedMessageLength - 1] = 0xBC;
 }
 
-inline bool emsa_pss_verify_sha256(void* encodedMessage, u32 encodedMessageBits, const void* message, u32 messageLength) {
-	const u32 hashLength = SHA256_HASH_SIZE;
-	const u32 saltLength = hashLength;
-	u32 encodedMessageLength = (encodedMessageBits + 7) / 8;
+inline bool emsa_pss_verify_sha256(void* encodedMessage, U32 encodedMessageBits, const void* message, U32 messageLength) {
+	const U32 hashLength = SHA256_HASH_SIZE;
+	const U32 saltLength = hashLength;
+	U32 encodedMessageLength = (encodedMessageBits + 7) / 8;
 
-	u8 messageHash[hashLength];
+	U8 messageHash[hashLength];
 	sha256(messageHash, message, messageLength);
 
 	if (encodedMessageLength < hashLength + saltLength + 2) {
 		return false;
 	}
 
-	if (reinterpret_cast<u8*>(encodedMessage)[encodedMessageLength - 1] != 0xBC) {
+	if (reinterpret_cast<U8*>(encodedMessage)[encodedMessageLength - 1] != 0xBC) {
 		return false;
 	}
 
-	if ((reinterpret_cast<u8*>(encodedMessage)[0] & ~(0xFF >> (encodedMessageLength * 8 - encodedMessageBits))) != 0) {
+	if ((reinterpret_cast<U8*>(encodedMessage)[0] & ~(0xFF >> (encodedMessageLength * 8 - encodedMessageBits))) != 0) {
 		return false;
 	}
 
-	u32 emZeroPadLength = encodedMessageLength - saltLength - hashLength - 2;
-	u32 hashOffset = encodedMessageLength - hashLength - 1;
-	u32 saltOffset = encodedMessageLength - saltLength - hashLength - 1;
+	U32 emZeroPadLength = encodedMessageLength - saltLength - hashLength - 2;
+	U32 hashOffset = encodedMessageLength - hashLength - 1;
+	U32 saltOffset = encodedMessageLength - saltLength - hashLength - 1;
 
-	mgf1_sha256_add_mask(encodedMessage, hashOffset, reinterpret_cast<u8*>(encodedMessage) + hashOffset, hashLength);
-	reinterpret_cast<u8*>(encodedMessage)[0] &= 0xFF >> (encodedMessageLength * 8 - encodedMessageBits);
+	mgf1_sha256_add_mask(encodedMessage, hashOffset, reinterpret_cast<U8*>(encodedMessage) + hashOffset, hashLength);
+	reinterpret_cast<U8*>(encodedMessage)[0] &= 0xFF >> (encodedMessageLength * 8 - encodedMessageBits);
 
-	for (u32 i = 0; i < emZeroPadLength; i++) {
-		if (reinterpret_cast<u8*>(encodedMessage)[i] != 0) {
+	for (U32 i = 0; i < emZeroPadLength; i++) {
+		if (reinterpret_cast<U8*>(encodedMessage)[i] != 0) {
 			return false;
 		}
 	}
 
-	if (reinterpret_cast<u8*>(encodedMessage)[emZeroPadLength] != 0x01) {
+	if (reinterpret_cast<U8*>(encodedMessage)[emZeroPadLength] != 0x01) {
 		return false;
 	}
 
-	u8 messagePrime[8 + hashLength + saltLength];
+	U8 messagePrime[8 + hashLength + saltLength];
 	memset(messagePrime, 0, 8);
 	memcpy(messagePrime + 8, messageHash, hashLength);
-	memcpy(messagePrime + 8 + hashLength, reinterpret_cast<u8*>(encodedMessage) + saltOffset, saltLength);
+	memcpy(messagePrime + 8 + hashLength, reinterpret_cast<U8*>(encodedMessage) + saltOffset, saltLength);
 	sha256(messageHash, messagePrime, 8 + hashLength + saltLength);
 
-	return memcmp(messageHash, reinterpret_cast<u8*>(encodedMessage) + hashOffset, hashLength) == 0;
+	return memcmp(messageHash, reinterpret_cast<U8*>(encodedMessage) + hashOffset, hashLength) == 0;
 }
 
-inline void rsassa_pss_sign_sha256(void* signature, const void* message, u32 messageLength, Keccak& random, BigInteger& rsaPrivateKey, BigInteger& rsaPrime, u32 rsaBits) {
+inline void rsassa_pss_sign_sha256(void* signature, const void* message, U32 messageLength, Keccak& random, BigInteger& rsaPrivateKey, BigInteger& rsaPrime, U32 rsaBits) {
 	// assert(rsaBits < 4096);
-	u8 emsaEncodedMessage[512];
+	U8 emsaEncodedMessage[512];
 	emsa_pss_encode_sha256(emsaEncodedMessage, rsaBits - 1, message, messageLength, random);
 
 	BigInteger rsaMessage; rsaMessage.init(64);
@@ -176,7 +176,7 @@ inline void rsassa_pss_sign_sha256(void* signature, const void* message, u32 mes
 	BigInteger::write_bytes_big_endian(signature, rsaBits / 8, rsaMessage);
 }
 
-inline bool rsassa_pss_verify_sha256(void* signature, const void* message, u32 messageLength, BigInteger& rsaPublicKey, BigInteger& rsaPrime, u32 rsaBits) {
+inline bool rsassa_pss_verify_sha256(void* signature, const void* message, U32 messageLength, BigInteger& rsaPublicKey, BigInteger& rsaPrime, U32 rsaBits) {
 	// assert(rsaBits < 4096);
 	BigInteger rsaMessage; rsaMessage.init(64);
 	BigInteger::assign_bytes_big_endian(rsaMessage, signature, rsaBits / 8);
@@ -184,26 +184,26 @@ inline bool rsassa_pss_verify_sha256(void* signature, const void* message, u32 m
 	if (rsavp1(rsaMessage, rsaPublicKey, rsaPrime) == false) {
 		return false;
 	}
-	u8 emsaEncodedMessage[512];
+	U8 emsaEncodedMessage[512];
 	BigInteger::write_bytes_big_endian(emsaEncodedMessage, rsaBits / 8, rsaMessage);
 
 	return emsa_pss_verify_sha256(emsaEncodedMessage, rsaBits - 1, message, messageLength);
 }
 
-inline void emsa_pkcs1_v1_5_encode_sha256(void* encodedMessage, u32 encodedMessageLength, const void* message, u32 messageLength) {
-	const u32 hashLength = SHA256_HASH_SIZE;
-	const u32 saltLength = hashLength;
+inline void emsa_pkcs1_v1_5_encode_sha256(void* encodedMessage, U32 encodedMessageLength, const void* message, U32 messageLength) {
+	const U32 hashLength = SHA256_HASH_SIZE;
+	const U32 saltLength = hashLength;
 
-	u8 messageHash[hashLength];
+	U8 messageHash[hashLength];
 	sha256(messageHash, message, messageLength);
 
-	u32 digestInfoLength = sizeof(PKCS_HASH_SHA256_DER) + hashLength;
+	U32 digestInfoLength = sizeof(PKCS_HASH_SHA256_DER) + hashLength;
 	if (encodedMessageLength < digestInfoLength + 11) {
 		return;
 	}
 
-	u32 paddingLength = encodedMessageLength - digestInfoLength - 3;
-	u8* encodedMessageBytes = reinterpret_cast<u8*>(encodedMessage);
+	U32 paddingLength = encodedMessageLength - digestInfoLength - 3;
+	U8* encodedMessageBytes = reinterpret_cast<U8*>(encodedMessage);
 	encodedMessageBytes[0] = 0x00;
 	encodedMessageBytes[1] = 0x01;
 	memset(encodedMessageBytes + 2, 0xFF, paddingLength);
@@ -212,9 +212,9 @@ inline void emsa_pkcs1_v1_5_encode_sha256(void* encodedMessage, u32 encodedMessa
 	memcpy(encodedMessageBytes + 2 + paddingLength + 1 + sizeof(PKCS_HASH_SHA256_DER), messageHash, hashLength);
 }
 
-inline void rsassa_pkcs1_sign_sha256(void* signature, const void* message, u32 messageLength, BigInteger& rsaPrivateKey, BigInteger& rsaPrime, u32 rsaBits) {
+inline void rsassa_pkcs1_sign_sha256(void* signature, const void* message, U32 messageLength, BigInteger& rsaPrivateKey, BigInteger& rsaPrime, U32 rsaBits) {
 	// assert(rsaBits < 4096);
-	u8 emsaEncodedMessage[512];
+	U8 emsaEncodedMessage[512];
 	emsa_pkcs1_v1_5_encode_sha256(emsaEncodedMessage, rsaBits / 8, message, messageLength);
 
 	BigInteger rsaMessage; rsaMessage.init(64);
@@ -224,7 +224,7 @@ inline void rsassa_pkcs1_sign_sha256(void* signature, const void* message, u32 m
 	BigInteger::write_bytes_big_endian(signature, rsaBits / 8, rsaMessage);
 }
 
-inline bool rsassa_pkcs1_verify_sha256(void* signature, const void* message, u32 messageLength, BigInteger& rsaPublicKey, BigInteger& rsaPrime, u32 rsaBits) {
+inline bool rsassa_pkcs1_verify_sha256(void* signature, const void* message, U32 messageLength, BigInteger& rsaPublicKey, BigInteger& rsaPrime, U32 rsaBits) {
 	// assert(rsaBits < 4096);
 	BigInteger rsaMessage; rsaMessage.init(64);
 	BigInteger::assign_bytes_big_endian(rsaMessage, signature, rsaBits / 8);
@@ -232,8 +232,8 @@ inline bool rsassa_pkcs1_verify_sha256(void* signature, const void* message, u32
 	if (rsavp1(rsaMessage, rsaPublicKey, rsaPrime) == false) {
 		return false;
 	}
-	u8 emsaEncodedMessage[512];
-	u8 emsaEncodedMessagePrime[512];
+	U8 emsaEncodedMessage[512];
+	U8 emsaEncodedMessagePrime[512];
 	BigInteger::write_bytes_big_endian(emsaEncodedMessage, rsaBits / 8, rsaMessage);
 	emsa_pkcs1_v1_5_encode_sha256(emsaEncodedMessagePrime, rsaBits / 8, message, messageLength);
 
@@ -245,12 +245,12 @@ inline bool rsassa_pkcs1_verify_sha256(void* signature, const void* message, u32
 
 #define ECDSA_SECP256R1_SIGNATURE_LENGTH 64
 
-inline void ecdsa_sign_secpr1_sha256(void* signature, const u8 messageHash[32], Keccak& random, void* privateKeyBytes) {
+inline void ecdsa_sign_secpr1_sha256(void* signature, const U8 messageHash[32], Keccak& random, void* privateKeyBytes) {
 	BigInteger privateKey; privateKey.init(64);
 	BigInteger::assign_bytes_big_endian(privateKey, privateKeyBytes, 32);
 
-	u8 kBytes[32];
-	u8 xBytes[32 + 32];
+	U8 kBytes[32];
+	U8 xBytes[32 + 32];
 	secp256r1_generate_keypair(random, xBytes, kBytes);
 
 	BigInteger k; k.init(64);
@@ -272,16 +272,16 @@ inline void ecdsa_sign_secpr1_sha256(void* signature, const u8 messageHash[32], 
 	BigInteger::modular_inverse(k, EC_SECP256r1_PARAMS.order);
 	BigInteger::mul(s, r, k);
 	BigInteger::div(s, EC_SECP256r1_PARAMS.order, nullptr);
-	BigInteger::write_bytes_big_endian(reinterpret_cast<u8*>(signature) + 32, 32, s);
+	BigInteger::write_bytes_big_endian(reinterpret_cast<U8*>(signature) + 32, 32, s);
 }
 
-inline void ecdsa_sign_secpr1_sha256(void* signature, const void* message, u32 messageLength, Keccak& random, void* privateKeyBytes) {
-	u8 messageHash[32];
+inline void ecdsa_sign_secpr1_sha256(void* signature, const void* message, U32 messageLength, Keccak& random, void* privateKeyBytes) {
+	U8 messageHash[32];
 	sha256(messageHash, message, messageLength);
 	ecdsa_sign_secpr1_sha256(signature, messageHash, random, privateKeyBytes);
 }
 
-inline bool ecdsa_verify_secpr1_sha256(BigInteger& r, BigInteger& s, const void* message, u32 messageLength, BigInteger& publicKeyXIn, BigInteger& publicKeyYIn) {
+inline bool ecdsa_verify_secpr1_sha256(BigInteger& r, BigInteger& s, const void* message, U32 messageLength, BigInteger& publicKeyXIn, BigInteger& publicKeyYIn) {
 	BigInteger publicKeyX; publicKeyX.init(64);
 	BigInteger publicKeyY; publicKeyY.init(64);
 	BigInteger::assign(publicKeyX, publicKeyXIn);
@@ -295,7 +295,7 @@ inline bool ecdsa_verify_secpr1_sha256(BigInteger& r, BigInteger& s, const void*
 	}
 
 	BigInteger e; e.init(64);
-	u8 messageHash[32];
+	U8 messageHash[32];
 	sha256(messageHash, message, messageLength);
 	BigInteger::assign_bytes_big_endian(e, messageHash, 32);
 
@@ -312,34 +312,36 @@ inline bool ecdsa_verify_secpr1_sha256(BigInteger& r, BigInteger& s, const void*
 	if (isPointAtInfinity) {
 		return false;
 	}
+
 	if (BigInteger::cmp(publicKeyX, EC_SECP256r1_PARAMS.order) >= 0) {
 		BigInteger::sub(publicKeyX, publicKeyX, EC_SECP256r1_PARAMS.order);
 	}
+
 	return BigInteger::cmp(publicKeyX, r) == 0;
 }
 
-inline bool ecdsa_verify_secpr1_sha256(void* signature, u32 signatureLength, const void* message, u32 messageLength, BigInteger& publicKeyXIn, BigInteger& publicKeyYIn) {
+inline bool ecdsa_verify_secpr1_sha256(void* signature, U32 signatureLength, const void* message, U32 messageLength, BigInteger& publicKeyXIn, BigInteger& publicKeyYIn) {
 	if (signatureLength != 32 + 32) {
 		return false;
 	}
 	BigInteger r; r.init(64);
 	BigInteger s; s.init(64);
 	BigInteger::assign_bytes_big_endian(r, signature, 32);
-	BigInteger::assign_bytes_big_endian(s, reinterpret_cast<u8*>(signature) + 32, 32);
+	BigInteger::assign_bytes_big_endian(s, reinterpret_cast<U8*>(signature) + 32, 32);
 	return ecdsa_verify_secpr1_sha256(r, s, message, messageLength, publicKeyXIn, publicKeyYIn);
 }
 
-inline bool ecdsa_verify_secpr1_sha256(void* signature, u32 signatureLength, const void* message, u32 messageLength, void* publicKeyBytes) {
+inline bool ecdsa_verify_secpr1_sha256(void* signature, U32 signatureLength, const void* message, U32 messageLength, const void* publicKeyBytes) {
 	BigInteger publicKeyX; publicKeyX.init(64);
 	BigInteger publicKeyY; publicKeyY.init(64);
 	BigInteger::assign_bytes_big_endian(publicKeyX, publicKeyBytes, 32);
-	BigInteger::assign_bytes_big_endian(publicKeyY, reinterpret_cast<u8*>(publicKeyBytes) + 32, 32);
+	BigInteger::assign_bytes_big_endian(publicKeyY, reinterpret_cast<const U8*>(publicKeyBytes) + 32, 32);
 	return ecdsa_verify_secpr1_sha256(signature, signatureLength, message, messageLength, publicKeyX, publicKeyY);
 }
 
-inline bool ecdsa_load_asn1(BigInteger& r, BigInteger& s, void* data, u32 dataLength) {
+inline bool ecdsa_load_asn1(BigInteger& r, BigInteger& s, void* data, U32 dataLength) {
 	ASN1Reader ecSignatureReader{ data, dataLength };
-	u32 signatureSectionEnd = ecSignatureReader.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
+	U32 signatureSectionEnd = ecSignatureReader.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
 	ecSignatureReader.read_big_integer_tag(r, signatureSectionEnd);
 	ecSignatureReader.read_big_integer_tag(s, signatureSectionEnd);
 	ecSignatureReader.verify_section_complete(signatureSectionEnd);

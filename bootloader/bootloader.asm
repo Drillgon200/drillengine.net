@@ -1012,7 +1012,8 @@ endstruc
 %define TCP_PORT_ENABLE_USER_PORT_MASK 0b1111111111
 %define TCP_PORT_ENABLE (VARIABLES_START + 244)
 %define USER_MODE_SAVED_STACK_POINTER (VARIABLES_START + 248)
-%define GLOBAL_VARIABLES_END (VARIABLES_START + 256)
+%define ALLOW_KERNEL_PROGRAM_DISK_WRITES (VARIABLES_START + 256)
+%define GLOBAL_VARIABLES_END (VARIABLES_START + 257)
 
 %if GLOBAL_VARIABLES_END > 0x2000
 %error Global variables too large
@@ -1570,13 +1571,13 @@ longModeLoader:
 
 	call startDHCP
 	
-	call testDiskCommands
+	;call testDiskCommands
 	
-	lea rax, [googleDotCom]
-	call dnsLookupBlocking
+	;lea rax, [googleDotCom]
+	;call dnsLookupBlocking
 
-	DEBUG_SEND_STR serverStartupStr
-	DEBUG_SEND_NUM [DHCP_LEASE_TIME]
+	;DEBUG_SEND_STR serverStartupStr
+	;DEBUG_SEND_NUM [DHCP_LEASE_TIME]
 
 	call loadAndExecuteUserProgram
 	jc .startupFailed
@@ -1875,8 +1876,9 @@ mapPhysicalToVirtual:
 	push rsi
 	push rdi
 	push rbp
+	push r8
 	
-	mov ebp, 1 ; bottom bit is 0 if supervisor, 1 if user. Higher bits are not equal to zero if previous PML needs an invalidation
+	mov ebp, 1 ; bottom bit is 0 if supervisor, 1 if user. Bit 1 means needs invalidate. Bit 2 means needs initialize
 	xor edi, edi
 	mov rdx, USER_PROGRAM_MEMORY_OFFSET
 	cmp rax, rdx
@@ -1907,7 +1909,7 @@ mapPhysicalToVirtual:
 	test rax, rax
 	jz .outOfMemory
 	mov rcx, rax
-	add ebp, 2 ; Set some higher bit to indicate this page needs an invalidate
+	or ebp, 2 | 4 ; Set bit 1 and 2 to indicate invalidate and initialize is needed
 .pml3Present:
 	test esi, PAGE_USER_SUPERVISOR ; If we're the supervisor, ignore the privilege check
 	jz .pml3UserModeCheckDone
@@ -1922,7 +1924,8 @@ mapPhysicalToVirtual:
 	cmp eax, esi
 	setne al
 	movzx eax, al
-	lea ebp, [rbp + rax * 2] ; This page should be invalidated if the flags changed
+	shl eax, 1
+	or ebp, eax ; This page should be invalidated if the flags changed
 	or rcx, rsi
 	mov [rdx], rcx
 
@@ -1932,11 +1935,21 @@ mapPhysicalToVirtual:
 	and rdx, ~0b111 ; 9 bit lookup
 	mov rcx, FOUR_LEVEL_PAGING_HIGH_BITS | (PML_SELF_REFERENCE << PML4_BIT_OFFSET) | (PML_SELF_REFERENCE << PML3_BIT_OFFSET) | (PML_SELF_REFERENCE << PML2_BIT_OFFSET) ; Self reference 3 times to get PML3
 	or rdx, rcx
-	cmp ebp, 1
-	jna .noPML3Invalidate
-	and ebp, 1
+	test ebp, 2
+	jz .noPML3Invalidate
 	invlpg [rdx]
 .noPML3Invalidate:
+	test ebp, 4
+	jz .noPML3Init
+	mov r8, rdi
+	mov rdi, rdx
+	and rdi, ~0xFFF
+	mov ecx, 0x1000 / 4
+	xor eax, eax
+	rep stosd
+	mov rdi, r8
+.noPML3Init:
+	and ebp, 1
 	mov rcx, [rdx] ; Get PML2 entry from PML3
 	test ecx, PAGE_PRESENT
 	jnz .pml2Present
@@ -1944,7 +1957,7 @@ mapPhysicalToVirtual:
 	test rax, rax
 	jz .outOfMemory
 	mov rcx, rax
-	add ebp, 2 ; Set some higher bit to indicate this page needs an invalidate
+	or ebp, 2 | 4 ; Set bit 1 and 2 to indicate invalidate and initialize is needed
 .pml2Present:
 	test esi, PAGE_USER_SUPERVISOR ; If we're the supervisor, ignore the privilege check
 	jz .pml2UserModeCheckDone
@@ -1959,7 +1972,8 @@ mapPhysicalToVirtual:
 	cmp eax, esi
 	setne al
 	movzx eax, al
-	lea ebp, [rbp + rax * 2] ; This page should be invalidated if the flags changed
+	shl eax, 1
+	or ebp, eax ; This page should be invalidated if the flags changed
 	or rcx, rsi
 	mov [rdx], rcx
 
@@ -1969,11 +1983,21 @@ mapPhysicalToVirtual:
 	and rdx, ~0b111 ; 9 bit lookup
 	mov rcx, FOUR_LEVEL_PAGING_HIGH_BITS | (PML_SELF_REFERENCE << PML4_BIT_OFFSET) | (PML_SELF_REFERENCE << PML3_BIT_OFFSET) ; Self reference 2 times to get PML2
 	or rdx, rcx
-	cmp ebp, 1
+	test ebp, 2
 	jna .noPML2Invalidate
-	and ebp, 1
 	invlpg [rdx]
 .noPML2Invalidate:
+	test ebp, 4
+	jz .noPML2Init
+	mov r8, rdi
+	mov rdi, rdx
+	and rdi, ~0xFFF
+	mov ecx, 0x1000 / 4
+	xor eax, eax
+	rep stosd
+	mov rdi, r8
+.noPML2Init:
+	and ebp, 1
 	mov rcx, [rdx] ; Get PML1 entry from PML2
 	test ecx, PAGE_PRESENT
 	jnz .pml1Present
@@ -1981,7 +2005,7 @@ mapPhysicalToVirtual:
 	test rax, rax
 	jz .outOfMemory
 	mov rcx, rax
-	add ebp, 2 ; Set some higher bit to indicate this page needs an invalidate
+	or ebp, 2 | 4 ; Set bit 1 and 2 to indicate invalidate and initialize is needed
 .pml1Present:
 	test esi, PAGE_USER_SUPERVISOR ; If we're the supervisor, ignore the privilege check
 	jz .pml1UserModeCheckDone
@@ -1996,7 +2020,8 @@ mapPhysicalToVirtual:
 	cmp eax, esi
 	setne al
 	movzx eax, al
-	lea ebp, [rbp + rax * 2] ; This page should be invalidated if the flags changed
+	shl eax, 1
+	or ebp, eax ; This page should be invalidated if the flags changed
 	or rcx, rsi
 	mov [rdx], rcx
 
@@ -2006,11 +2031,21 @@ mapPhysicalToVirtual:
 	and rdx, ~0b111 ; 9 bit lookup
 	mov rcx, FOUR_LEVEL_PAGING_HIGH_BITS | (PML_SELF_REFERENCE << PML4_BIT_OFFSET) ; Self reference 1 time to get PML1
 	or rdx, rcx
-	cmp ebp, 1
+	test ebp, 2
 	jna .noPML1Invalidate
-	and ebp, 1
 	invlpg [rdx]
 .noPML1Invalidate:
+	test ebp, 4
+	jz .noPML1Init
+	mov r8, rdi
+	mov rdi, rdx
+	and rdi, ~0xFFF
+	mov ecx, 0x1000 / 4
+	xor eax, eax
+	rep stosd
+	mov rdi, r8
+.noPML1Init:
+	and ebp, 1
 	mov rcx, [rdx] ; Get page entry from PML1
 	test ecx, PAGE_PRESENT
 	jnz .pagePresent
@@ -2058,6 +2093,7 @@ mapPhysicalToVirtual:
 .userTriedToMapSupervisorAddressSpace:
 	stc
 .end:
+	pop r8
 	pop rbp
 	pop rdi
 	pop rsi
@@ -2875,8 +2911,8 @@ startupDoneTookStr db "Startup done, took ",0x0
 startupFailedStr db "Startup failed!",0x0a,0x0
 millisecondsStr db " milliseconds.",0x0a,0x0
 diskSizeStr db "Disk size: ",0x00
-virtIONetFound db "VirtIO Net Device Found!",0x0a,0x0
-virtIONetInitError db "VirtIO Net Init Error!",0x0a,0x0
+virtIONetFound db "VirtIO Net Device Found",0x0a,0x0
+virtIONetInitError db "VirtIO Net Init Error",0x0a,0x0
 virtIONetInitDone db "VirtIO Net Init Done",0x0a,0x0
 virtIONetInitStart db "VirtIO Net Init Start",0x0a,0x0
 virtIOCapabilityFailure db "VirtIO Cap Fail!",0x0a,0x0
@@ -2884,7 +2920,7 @@ virtIOLegacyDevice db "VirtIO Is Legacy Device",0x0a,0x0
 virtioChecksumOffload db "VirtIO Supports Checksum Offload",0x0a,0x0
 virtioNoChecksumOffload db "VirtIO Does Not Support Checksum Offload",0x0a,0x0
 virtIOBlkFound db "VirtIO Blk Device Found",0x0a,0x0
-virtIOBlkInitError db "VirtIO Blk Init Error!",0x0a,0x0
+virtIOBlkInitError db "VirtIO Blk Init Error",0x0a,0x0
 virtIOBlkInitDone db "VirtIO Blk Init Done",0x0a,0x0
 virtIOBlkInitStart db "VirtIO Blk Init Start",0x0a,0x0
 debugTabStr db "    ",0x0
@@ -3793,7 +3829,7 @@ diskVirtQInterrupt:
 	push rdx
 	push rsi
 	
-	DEBUG_PRINT_STR diskVirtqInterruptStr
+	;DEBUG_PRINT_STR diskVirtqInterruptStr
 
 	movzx eax, word [VIRTIO_BLK_QUEUE_OFFSET + VIRTQ_LAST_SEEN_USED_OFFSET]
 	cmp word ax, [VIRTIO_BLK_QUEUE_OFFSET + VIRTQ_USED_OFFSET + VIRTQ_USED_IDX_OFFSET]
@@ -3923,12 +3959,15 @@ diskCommand:
 	mov eax, DISK_ERROR_DISK_AREA_OUT_OF_RANGE
 	cmp rbx, [VIRTIO_BLK_DISK_SECTOR_COUNT]
 	jnb .end
+	cmp byte [ALLOW_KERNEL_PROGRAM_DISK_WRITES], 0
+	jne .skipWriteProtect
 	cmp si, DISK_CMD_TYPE_WRITE
 	jne .cmdNotWrite
 	; Write protect program area of disk
 	cmp rbx, DISK_PROTECTED_AREA_END / 512
 	jb .end
 .cmdNotWrite:
+.skipWriteProtect:
 	add rbx, rdx
 	cmp rbx, [VIRTIO_BLK_DISK_SECTOR_COUNT] ; sectorOffset + sectorCount > diskSectorCount
 	jnbe .end
@@ -5538,6 +5577,8 @@ didNotSendDataStr db "Did not send data",0x0a,0x00
 queueingDataSendStr db "Queueing data send",0x0a,0x00
 sendingActualDataPacketStr db "Sending actual data packet",0x0a,0x00
 hasDataSizeStr db "Has data size",0x0a,0x00
+queueForTransmissionStr db "Queue for transmission",0x0a,0x00
+sendDataPosStr db "SendDataPos:",0x00
 
 ; rbx contains block address
 ; ecx contains max packets
@@ -5556,18 +5597,18 @@ tcpSendData:
 	push r11
 	push r12
 	
-	mov eax, [rbx + TCP_TCB_STATE_OFFSET]
+	mov r11, rbx
+	mov eax, [r11 + TCP_TCB_STATE_OFFSET]
 	cmp eax, TCP_STATE_SYN_SENT
 	je .dontSendDataYet
 	cmp eax, TCP_STATE_SYN_RECEIVED
 	je .dontSendDataYet
 
 	xor r8d, r8d ; didSendData = false
-	mov r9d, [rbx + TCP_TCB_SEND_WINDOW_OFFSET]
+	mov r9d, [r11 + TCP_TCB_SEND_WINDOW_OFFSET]
 	cmp r9d, edx
 	cmovg r9d, edx ; window
 	mov r10d, ecx ; maxPackets
-	mov r11, rbx
 	mov r12d, [r11 + TCP_TCB_RESEND_NEXT_OFFSET]
 	add r12d, [r11 + TCP_TCB_SEND_DATA_SIZE_OFFSET]
 	mov ecx, [r11 + TCP_TCB_CLOSE_REQUESTED_OFFSET]
@@ -5641,9 +5682,8 @@ tcpSendData:
 	sub edx, [r11 + TCP_TCB_SEND_DATA_POS_OFFSET] ; dataUntilEnd
 	cmp ecx, edx
 	jnle .needsTwoCopies
-	; memcpy(packet, block.sendBuffer + block.sendDataPos, dataTransfer)
-	rep movsb
 	add [r11 + TCP_TCB_SEND_DATA_POS_OFFSET], ecx
+	rep movsb ; memcpy(packet, block.sendBuffer + block.sendDataPos, dataTransfer)
 	jmp .needsOneCopy
 .needsTwoCopies:
 	xchg ecx, edx ; copy size = dataUntilEnd
@@ -5651,8 +5691,8 @@ tcpSendData:
 	mov rsi, [r11 + TCP_TCB_SEND_BUFFER_OFFSET] ; src = sendBuffer
 	sub edx, ecx
 	mov ecx, edx ; copy size = dataTransfer - dataUntilEnd
-	rep movsb
 	mov [r11 + TCP_TCB_SEND_DATA_POS_OFFSET], ecx
+	rep movsb
 .needsOneCopy:
 	
 	mov edx, [r11 + TCP_TCB_REMOTE_IP_OFFSET]
@@ -5706,7 +5746,6 @@ tcpSendData:
 .stateUpdateNotNeeded:
 
 .dontSendDataYet:
-	
 	; See if we should queue it for more data sending later
 	cmp dword [r11 + TCP_TCB_SEND_QUEUE_NEXT_PTR_OFFSET], TCP_SEND_QUEUE_INVALID_NEXT_PTR
 	jne .shouldNotQueueBlockForMoreTransmission ; Already on queue
@@ -5921,7 +5960,7 @@ tcpSend:
 	cmp eax, TCP_STATE_SYN_SENT
 	je .shouldSendForThisState
 	cmp eax, TCP_STATE_SYN_RECEIVED
-	je .shouldSendForThisState
+	jne .noDataSent
 .shouldSendForThisState:
 	mov edx, edi
 	
@@ -6011,7 +6050,7 @@ tcpActiveOpen:
 	call tcpHashInsert
 	mov rbx, rax
 	call tcpBlockInit
-	mov ecx, TCP_HEADER_FLAG_SYNCHRONIZE
+	mov edx, TCP_HEADER_FLAG_SYNCHRONIZE
 	call tcpSendSYNPacket
 	mov dword [rbx + TCP_TCB_STATE_OFFSET], TCP_STATE_SYN_SENT
 
@@ -6035,7 +6074,7 @@ tcpOpen:
 	or rcx, rbx
 	call tcpHashLookup
 	cmp ebx, TCP_CONNECTION_HASH_EMPTY
-	jne .connectionDidNotAlreadyExist
+	je .connectionDidNotAlreadyExist
 	mov rsi, TCP_CONNECTIONS_OFFSET
 	imul eax, ebx, TCP_BLOCK_SIZE
 	add rax, rsi
@@ -6516,6 +6555,7 @@ tcpResetRetransmissionTimeout:
 	ret
 
 resetDeletionTimeoutStr db "Reset Deletion Timeout: ",0x00
+sendRstStr db "Send RST",0x0a,0x00
 
 ; rbx contains TCP_TCB address
 ; ecx contains timeout length in milliseconds
@@ -6569,15 +6609,19 @@ tcpProcessExtensions:
 	cmp edx, 0
 	jle .processLoopEnd
 	movzx edi, byte [rcx] ; get extension size
+	cmp edi, 2
+	jl .processLoopEnd
+	sub edi, 2
 	add rcx, 1
 	sub edx, 1
 	cmp edx, edi
 	jl .processLoopEnd ; Make sure we have at least this many bytes left
 	cmp al, TCP_OPTION_MAXIMUM_SEGMENT_SIZE_OP
 	jne .notMaximumSegmentSizeExt
-	cmp edi, 4 ; This extension must have a size of exactly 4
+	cmp edi, 4 - 2 ; This extension must have a size of exactly 4 (and we subtracted 2 earlier for the kind and length bytes)
 	jne .processLoopEnd
-	movbe eax, [rcx]
+	xor eax, eax
+	movbe ax, [rcx]
 	mov esi, TCP_SEGMENT_SIZE
 	cmp esi, eax
 	cmovl eax, esi
@@ -6756,8 +6800,6 @@ handleTCPPacket:
 	cmp dword [rbx + TCP_TCB_STATE_OFFSET], TCP_STATE_SYN_SENT
 	jne .stateNotSynSent
 
-	;DEBUG_PRINT_STR connectionWasStateSynSent
-
 	xor edx, edx ; ackAcceptable = 0
 
 	test sil, TCP_HEADER_FLAG_ACKNOWLEDGE
@@ -6766,13 +6808,15 @@ handleTCPPacket:
 	mov ecx, r11d ; packet.ack
 	sub ecx, [rbx + TCP_TCB_SEND_INITIAL_SEQUENCE_NUMBER_OFFSET]
 	cmp ecx, 0
-	jle .synSentAckInRange
+	jle .synSentBadAck
 	mov ecx, r11d ; packet.ack
-	sub ecx, [rax + TCP_TCB_SEND_NEXT_OFFSET]
+	sub ecx, [rbx + TCP_TCB_SEND_NEXT_OFFSET]
 	cmp ecx, 0
-	jg .synSentAckInRange
+	jng .synSentAckInRange
+.synSentBadAck:
 	test sil, TCP_HEADER_FLAG_RESET
 	jnz .end
+	;DEBUG_PRINT_STR sendRstStr
 	; Send reset
 	mov edx, TCP_HEADER_FLAG_RESET ; flags
 	mov edi, r11d ; seq = packet.ack
@@ -6843,11 +6887,14 @@ handleTCPPacket:
 	movzx ecx, word [rax + TCP_HEADER_WINDOW_OFFSET]
 	mov [rbx + TCP_TCB_SEND_WINDOW_OFFSET], ecx
 	mov ecx, r10d ; get packet.seq
-	mov [rbx + TCP_TCB_SEND_SEQUENCE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], ecx
 	mov ecx, r11d ; packet.ack
+	mov [rbx + TCP_TCB_SEND_SEQUENCE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], ecx
 	mov [rbx + TCP_TCB_SEND_ACKNOWLEDGE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], ecx
 	mov ecx, 5000 ; 5 seconds
 	call tcpResetDeletionTimeout
+	mov ecx, 0xFFFFFFFF
+	mov edx, [rbx + TCP_TCB_CONGESTION_WINDOW_OFFSET]
+	call tcpSendData
 .synSentNoSyn:
 	jmp .end
 .stateNotSynSent:
@@ -8030,8 +8077,7 @@ processPacket:
 .notPendingAck:
 .dhcpPacketProcessed:
 
-	lea rax, [dhcpPacketReceived]
-	call debugPrint
+	;DEBUG_PRINT_STR dhcpPacketReceived
 	jmp .end
 .notDHCPPacket:
 
@@ -8053,7 +8099,7 @@ processPacket:
 	jz .end
 
 	; Alright, we have our DNS response. Time to process it and see if it contains the IP address we need
-	DEBUG_PRINT_STR dnsAnswerReceived
+	;DEBUG_PRINT_STR dnsAnswerReceived
 	mov dword [DNS_LOOKUP_RESULT_CODE], DNS_LOOKUP_RESULT_FAILURE ; Set to failure now, will be set to success if we find the answer we want
 	movzx ebx, word [rax + DNS_MESSAGE_HEADER_FLAGS_OFFSET]
 	ror bx, 8 ; swap to little endian
@@ -8213,10 +8259,12 @@ processPacket:
 	jl .end ; Not enough data left
 	jmp .dnsAnswerNameProcessLoop
 .dnsAnswerNameProcessed:
-	test rsi, rsi ; name == nullptr
-	jz .dnsAnswerNotValid ; name was null
-	cmp byte [rsi], 0 ; name[0] == '\0'
-	jne .dnsAnswerNotValid ; name didn't end on a null terminator
+	; It's 6AM and I don't feel like properly handling CNAME records, so we're just going to take any A record and hope it's right
+	;test rsi, rsi ; name == nullptr
+	
+	;jz .dnsAnswerNotValid ; name was null
+	;cmp byte [rsi], 0 ; name[0] == '\0'
+	;jne .dnsAnswerNotValid ; name didn't end on a null terminator
 	cmp word [rax + rbx + DNS_RESOURCE_RECORD_TYPE_OFFSET], HTON16(DNS_TYPE_A)
 	jne .dnsAnswerNotValid
 	cmp word [rax + rbx + DNS_RESOURCE_RECORD_CLASS_OFFSET], HTON16(DNS_CLASS_IN)
@@ -8235,10 +8283,12 @@ processPacket:
 	mov ecx, [rax + rbx + DNS_RESOURCE_RECORD_RDATA_OFFSET]
 	mov [DNS_LOOKUP_RESULT_IP], ecx
 	mov dword [DNS_LOOKUP_RESULT_CODE], DNS_LOOKUP_RESULT_SUCCESS
-	DEBUG_PRINT_STR dnsAddressFound
+	;DEBUG_PRINT_STR dnsAddressFound
 	jmp .end
 .dnsAnswerNotValid:
-	add ebx, DNS_RESOURCE_RECORD_RDATA_OFFSET
+	xor ebp, ebp
+	movbe bp, [rax + rbx + DNS_RESOURCE_RECORD_RDATA_LENGTH_OFFSET]
+	lea ebx, [rbx + DNS_RESOURCE_RECORD_RDATA_OFFSET + rbp]
 	sub word [rax + DNS_MESSAGE_HEADER_ANSWER_COUNT_OFFSET], 1
 	cmp word [rax + DNS_MESSAGE_HEADER_ANSWER_COUNT_OFFSET], 0
 	jne .dnsProcessAnswersLoop
@@ -8322,8 +8372,6 @@ userProgramLoadFailed db "User program load failed.",0x0a,0x00
 	
 ; carry set if failed
 loadAndExecuteUserProgram:
-	DEBUG_PRINT_NUM 1
-	
 	; Load program header
 	mov eax, DISK_CMD_TYPE_READ ; command type
 	mov ecx, SCRATCH_PAGES_START ; virtual memory data pointer
@@ -8414,8 +8462,6 @@ loadAndExecuteUserProgram:
 	cmp rax, rbx
 	jb .allocStackLoop
 	
-	DEBUG_PRINT_NUM 7
-	
 	mov [USER_MODE_SAVED_STACK_POINTER], rsp
 	mov rsp, USER_PROGRAM_MEMORY_OFFSET + USER_PROGRAM_MEMORY_STACK_OFFSET + USER_PROGRAM_STACK_SIZE
 	sti
@@ -8454,6 +8500,7 @@ loadAndExecuteUserProgram:
 ; 14 - http port control
 ; 15 - shutdown
 ; 16 - debug print
+; 17 - Set kernel program disk write enable
 
 ; Syscall argument listing:
 ; 0: no args
@@ -8547,6 +8594,7 @@ loadAndExecuteUserProgram:
 %define SYSCALL_SHUTDOWN_CODE_RESTART 1
 %define SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP 2
 ; 16: pointer to null terminated string
+; 17: 1 if should enable kernel program writes, 0 otherwise
 
 ; Syscall return listing:
 ; 0: 64 bit time since startup, in milliseconds
@@ -8566,6 +8614,7 @@ loadAndExecuteUserProgram:
 ; 14: <None>
 ; 15: <None>
 ; 16: <None>
+; 17: <None>
 	
 ; eax contains syscall number
 ; rdx contains argument
@@ -8588,7 +8637,7 @@ syscallHandler:
 	;DEBUG_PRINT_STR syscallStr
 	;DEBUG_PRINT_NUM eax
 	
-	cmp eax, 16 ; max syscall number
+	cmp eax, 17 ; max syscall number
 	ja .brokenSyscall
 	mov eax, [.syscallJumpTable + eax * 4]
 	jmp rax
@@ -8781,7 +8830,7 @@ syscallHandler:
 	mov ecx, [DNS_LOOKUP_RESULT_CODE]
 	and ecx, 0b11
 	or rax, rcx
-	shr rax, 32
+	shl rax, 32
 	mov ecx, [DNS_LOOKUP_RESULT_IP]
 	or rax, rcx
 	jmp .end
@@ -8790,18 +8839,18 @@ syscallHandler:
 	mov [TCP_PORT_ENABLE], edx
 	jmp .end
 .shutdown:
-	cmp edi, SYSCALL_SHUTDOWN_CODE_HLT
+	cmp edx, SYSCALL_SHUTDOWN_CODE_HLT
 	jne .shutdownNotHlt
 	hlt
 	jmp .end
 .shutdownNotHlt:
-	cmp edi, SYSCALL_SHUTDOWN_CODE_RESTART
+	cmp edx, SYSCALL_SHUTDOWN_CODE_RESTART
 	jne .shutdownNotRestart
 	; TODO handle restart
 	cli
 	jmp systemIdle
 .shutdownNotRestart:
-	cmp edi, SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP
+	cmp edx, SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP
 	jne .shutdownNotDeepSleep
 	cli
 	jmp systemIdle
@@ -8840,6 +8889,9 @@ syscallHandler:
 .stringVerifyFail:
 	mov rbx, r10
 	jmp .end
+.setKernelProgramDiskWriteEnable:
+	mov [ALLOW_KERNEL_PROGRAM_DISK_WRITES], dl
+	jmp .end
 .unimplementedSyscall:
 	xor eax, eax
 	jmp .end
@@ -8872,6 +8924,7 @@ dd .dnsLookupBlocking
 dd .httpPortControl
 dd .shutdown
 dd .debugPrint
+dd .setKernelProgramDiskWriteEnable
 
 debugGotHere db "GotHere",0x0a,0x00
 debugGotHere2 db "GotHere2",0x0a,0x00

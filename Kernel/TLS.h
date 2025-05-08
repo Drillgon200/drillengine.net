@@ -5,117 +5,64 @@
 #include "RSA.h"
 #include "ECC.h"
 #include "ASN1.h"
+#include "X509.h"
 #include "PondOS.h"
 
-enum TLSRecordType {
-	TLS_RECORD_TYPE_INVALID = 0,
-	TLS_RECORD_TYPE_CHANGE_CIPHER_SPEC = 20,
-	TLS_RECORD_TYPE_ALERT = 21,
-	TLS_RECORD_TYPE_HANDSHAKE = 22,
-	TLS_RECORD_TYPE_APPLICATION_DATA = 23
+#define TLS_DEBUG_LOG_LEVEL 1
+#define TLS_DEBUG_LOG(str, level) if((level) <= TLS_DEBUG_LOG_LEVEL) { print(str); }
+#define TLS_DEBUG_LOG_NUM(n, level) if((level) <= TLS_DEBUG_LOG_LEVEL) { print_num(n); }
+
+// SHA256 of "HelloRetryRequest"
+const Byte tlsHelloRetryRequestMagic[]{ 0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91, 0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C };
+const Byte tlsTLS12NegotiationMagic[]{ 0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x01 };
+const Byte tlsTLS11NegotiationMagic[]{ 0x44, 0x4F, 0x57, 0x4E, 0x47, 0x52, 0x44, 0x00 };
+
+// RFC 8446 Section 4.2
+enum TLSExtensionType : U16 {
+	TLS_EXTENSION_TYPE_SERVER_NAME = 0,
+	TLS_EXTENSION_TYPE_MAX_FRAGMENT_LENGTH = 1,
+	TLS_EXTENSION_TYPE_STATUS_REQUEST = 5,
+	TLS_EXTENSION_TYPE_SUPPORTED_GROUPS = 10,
+	TLS_EXTENSION_TYPE_SIGNATURE_ALGORITHMS = 13,
+	TLS_EXTENSION_TYPE_USE_SRTP = 14,
+	TLS_EXTENSION_TYPE_HEARTBEAT = 15,
+	TLS_EXTENSION_TYPE_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16,
+	TLS_EXTENSION_TYPE_SIGNED_CERTIFICATE_TIMESTAMP = 18,
+	TLS_EXTENSION_TYPE_CLIENT_CERTIFICATE_TYPE = 19,
+	TLS_EXTENSION_TYPE_SERVER_CERTIFICATE_TYPE = 20,
+	TLS_EXTENSION_TYPE_PADDING = 21,
+	TLS_EXTENSION_TYPE_PRE_SHARED_KEY = 41,
+	TLS_EXTENSION_TYPE_EARLY_DATA = 42,
+	TLS_EXTENSION_TYPE_SUPPORTED_VERSIONS = 43,
+	TLS_EXTENSION_TYPE_COOKIE = 44,
+	TLS_EXTENSION_TYPE_PSK_KEY_EXCHANGE_MODES = 45,
+	TLS_EXTENSION_TYPE_CERTIFICATE_AUTHORITIES = 47,
+	TLS_EXTENSION_TYPE_OID_FILTERS = 48,
+	TLS_EXTENSION_TYPE_POST_HANDSHAKE_AUTH = 49,
+	TLS_EXTENSION_TYPE_SIGNATURE_ALGORITHMS_CERT = 50,
+	TLS_EXTENSION_TYPE_KEY_SHARE = 51
 };
 
-enum TLSHandshakeType {
-	TLS_HANDSHAKE_CLIENT_HELLO = 1,
-	TLS_HANDSHAKE_SERVER_HELLO = 2,
-	TLS_HANDSHAKE_NEW_SESSION_TICKET = 4,
-	TLS_HANDSHAKE_END_OF_EARLY_DATA = 5,
-	TLS_HANDSHAKE_ENCRYPTED_EXTENSIONS = 8,
-	TLS_HANDSHAKE_CERTIFICATE = 11,
-	TLS_HANDSHAKE_CERTIFICATE_REQUEST = 13,
-	TLS_HANDSHAKE_CERTIFICATE_VERIFY = 15,
-	TLS_HANDSHAKE_FINISHED = 20,
-	TLS_HANDSHAKE_KEY_UPDATE = 24,
-	TLS_HANDSHAKE_MESSAGE_HASH = 254
+// RFC 8446 Appendix B.1
+enum TLSContentType : U8 {
+	TLS_CONTENT_TYPE_INVALID = 0,
+	TLS_CONTENT_TYPE_CHANGE_CIPHER_SPEC = 20,
+	TLS_CONTENT_TYPE_ALERT = 21,
+	TLS_CONTENT_TYPE_HANDSHAKE = 22,
+	TLS_CONTENT_TYPE_APPLICATION_DATA = 23,
+	TLS_CONTENT_TYPE_HEARTBEAT = 24
 };
 
-enum TLSCipherSuite {
-	TLS_AES_128_GCM_SHA256 = 0x1301,
-	TLS_AES_256_GCM_SHA384 = 0x1302,
-	TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
-	TLS_AES_128_CCM_SHA256 = 0x1304,
-	TLS_AES_128_CCM_8_SHA256 = 0x1305
-};
-
-enum TLSSignatureScheme {
-	TLS_RSA_PKCS1_SHA256 = 0x0401,
-	TLS_RSA_PKCS1_SHA384 = 0x0501,
-	TLS_RSA_PKCS1_SHA512 = 0x0601,
-
-	TLS_ECDSA_SECP256R1_SHA256 = 0x0403,
-	TLS_ECDSA_SECP384R1_SHA384 = 0x0503,
-	TLS_ECDSA_SECP521R1_SHA512 = 0x0603,
-
-	TLS_RSS_PSS_RSAE_SHA256 = 0x0804,
-	TLS_RSS_PSS_RSAE_SHA384 = 0x0805,
-	TLS_RSS_PSS_RSAE_SHA512 = 0x0806,
-
-	TLS_ED25519 = 0x0807,
-	TLS_ED448 = 0x0808,
-
-	TLS_RSS_PSS_PSS_SHA256 = 0x0809,
-	TLS_RSS_PSS_PSS_SHA384 = 0x080A,
-	TLS_RSS_PSS_PSS_SHA512 = 0x080B,
-
-	TLS_RSA_PKCS1_SHA1 = 0x0201,
-	TLS_ECDSA_SHA1 = 0x0203
-};
-
-enum TLSExtension {
-	TLS_EXTENSION_SERVER_NAME = 0,
-	TLS_EXTENSION_MAX_FRAGMENT_LENGTH = 1,
-	TLS_EXTENSION_STATUS_REQUEST = 5,
-	TLS_EXTENSION_SUPPORTED_GROUPS = 10,
-	TLS_EXTENSION_SIGNATURE_ALGORITHMS = 13,
-	TLS_EXTENSION_USE_SRTP = 14,
-	TLS_EXTENSION_HEARTBEAT = 15,
-	TLS_EXTENSION_APPLICATION_LAYER_PROTOCOL_NEGOTIATION = 16,
-	TLS_EXTENSION_SIGNED_CERTIFICATE_TIMESTAMP = 18,
-	TLS_EXTENSION_CLIENT_CERTIFICATE_TYPE = 19,
-	TLS_EXTENSION_SERVER_CERTIFICATE_TYPE = 20,
-	TLS_EXTENSION_PADDING = 21,
-	TLS_EXTENSION_PRE_SHARED_KEY = 41,
-	TLS_EXTENSION_EARLY_DATA = 42,
-	TLS_EXTENSION_SUPPORTED_VERSIONS = 43,
-	TLS_EXTENSION_COOKIE = 44,
-	TLS_EXTENSION_PSK_KEY_EXCHANGE_MODES = 45,
-	TLS_EXTENSION_CERTIFICATE_AUTHORITIES = 47,
-	TLS_EXTENSION_OID_FILTERS = 48,
-	TLS_EXTENSION_POST_HANDSHAKE_AUTH = 49,
-	TLS_EXTENSION_SIGNATURE_ALGORITHMS_CERT = 50,
-	TLS_EXTENSION_KEY_SHARE = 51
-};
-
-enum TLSNamedGroup {
-	TLS_GROUP_SECP256R1 = 0x0017,
-	TLS_GROUP_SECP384R1 = 0x0018,
-	TLS_GROUP_SECP521R1 = 0x0019,
-
-	TLS_GROUP_X25519 = 0x001D,
-	TLS_GROUP_X448 = 0x001E,
-
-	TLS_GROUP_FFDHE2048 = 0x0100,
-	TLS_GROUP_FFDHE3072 = 0x0101,
-	TLS_GROUP_FFDHE4096 = 0x0102,
-	TLS_GROUP_FFDHE6144 = 0x0103,
-	TLS_GROUP_FFDHE8192 = 0x0104
-};
-
-enum TLSServerNameType {
-	TLS_SERVER_NAME_HOST_NAME = 0
-};
-
-enum TLSAlertLevel {
-	TLS_ALERT_LEVEL_WARNING = 1,
-	TLS_ALERT_LEVEL_FATAL = 2
-};
-
-enum TLSAlertDescription {
+// RFC 8446 Appendix B.2
+enum TLSAlertDescription : U8 {
 	TLS_ALERT_CLOSE_NOTIFY = 0,
 	TLS_ALERT_UNEXPECTED_MESSAGE = 10,
 	TLS_ALERT_BAD_RECORD_MAC = 20,
+	TLS_ALERT_DECRYPTION_FAILED_RESERVED = 21,
 	TLS_ALERT_RECORD_OVERFLOW = 22,
+	TLS_ALERT_DECOMPRESSION_FAILURE_RESERVED = 30,
 	TLS_ALERT_HANDSHAKE_FAILURE = 40,
+	TLS_ALERT_NO_CERTIFICATE_RESERVED = 41,
 	TLS_ALERT_BAD_CERTIFICATE = 42,
 	TLS_ALERT_UNSUPPORTED_CERTIFICATE = 43,
 	TLS_ALERT_CERTIFICATE_REVOKED = 44,
@@ -126,1163 +73,1935 @@ enum TLSAlertDescription {
 	TLS_ALERT_ACCESS_DENIED = 49,
 	TLS_ALERT_DECODE_ERROR = 50,
 	TLS_ALERT_DECRYPT_ERROR = 51,
+	TLS_ALERT_EXPORT_RESTRICTION_RESERVED = 60,
 	TLS_ALERT_PROTOCOL_VERSION = 70,
 	TLS_ALERT_INSUFFICIENT_SECURITY = 71,
 	TLS_ALERT_INTERNAL_ERROR = 80,
 	TLS_ALERT_INAPPROPRIATE_FALLBACK = 86,
 	TLS_ALERT_USER_CANCELED = 90,
+	TLS_ALERT_NO_RENEGOTIATION_RESERVED = 100,
 	TLS_ALERT_MISSING_EXTENSION = 109,
 	TLS_ALERT_UNSUPPORTED_EXTENSION = 110,
+	TLS_ALERT_CERTIFICATE_UNOBTAINABLE_RESERVED = 111,
 	TLS_ALERT_UNRECOGNIZED_NAME = 112,
 	TLS_ALERT_BAD_CERTIFICATE_STATUS_RESPONSE = 113,
+	TLS_ALERT_BAD_CERTIFICATE_HASH_VALUE_RESERVED = 114,
 	TLS_ALERT_UNKNOWN_PSK_IDENTITY = 115,
 	TLS_ALERT_CERTIFICATE_REQUIRED = 116,
 	TLS_ALERT_NO_APPLICATION_PROTOCOL = 120
 };
 
-enum TLSKeyUpdateRequest {
+enum TLSAlertLevel : U8 {
+	TLS_ALERT_LEVEL_WARNING = 1,
+	TLS_ALERT_LEVEL_FATAL = 2
+};
+
+// TFC 8446 Section 4.6.3
+enum TLSKeyUpdateRequest : U8 {
 	TLS_KEY_UPDATE_NOT_REQUESTED = 0,
 	TLS_KEY_UPDATE_REQUESTED = 1
 };
 
-enum ConnectionError {
-	CONNECTION_ERROR_SUCCESS,
-	CONNECTION_ERROR_WSA_INIT_FAILED,
-	CONNECTION_ERROR_GET_ADDR_INFO_FAIL,
-	CONNECTION_ERROR_SOCKET_CREATION_ERROR,
-	CONNECTION_ERROR_BIND_FAILED,
-	CONNECTION_ERROR_LISTEN_FAILED,
-	CONNECTION_ERROR_CONNECT_FAILED,
-	CONNECTION_ERROR_SEND_FAILED
+// RFC 8446 Appendix B.3
+enum TLSHandshakeType : U8 {
+	TLS_HANDSHAKE_TYPE_HELLO_REQUEST_RESERVED = 0,
+	TLS_HANDSHAKE_TYPE_CLIENT_HELLO = 1,
+	TLS_HANDSHAKE_TYPE_SERVER_HELLO = 2,
+	TLS_HANDSHAKE_TYPE_HELLO_VERIFY_REQUEST_RESERVED = 3,
+	TLS_HANDSHAKE_TYPE_NEW_SESSION_TICKET = 4,
+	TLS_HANDSHAKE_TYPE_END_OF_EARLY_DATA = 5,
+	TLS_HANDSHAKE_TYPE_HELLO_RETRY_REQUEST_RESERVED = 6,
+	TLS_HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS = 8,
+	TLS_HANDSHAKE_TYPE_CERTIFICATE = 11,
+	TLS_HANDSHAKE_TYPE_SERVER_KEY_EXCHANGE_RESERVED = 12,
+	TLS_HANDSHAKE_TYPE_CERTIFICATE_REQUEST = 13,
+	TLS_HANDSHAKE_TYPE_SERVER_HELLO_DONE_RESERVED = 14,
+	TLS_HANDSHAKE_TYPE_CERTIFICATE_VERIFY = 15,
+	TLS_HANDSHAKE_TYPE_CLIENT_KEY_EXCHANGE_RESERVED = 16,
+	TLS_HANDSHAKE_TYPE_FINISHED = 20,
+	TLS_HANDSHAKE_TYPE_CERTIFICATE_URL_RESERVED = 21,
+	TLS_HANDSHAKE_TYPE_CERTIFICATE_STATUS_RESERVED = 22,
+	TLS_HANDSHAKE_TYPE_SUPPLEMENTAL_DATA_RESERVED = 23,
+	TLS_HANDSHAKE_TYPE_KEY_UPDATE = 24,
+	TLS_HANDSHAKE_TYPE_MESSAGE_HASH = 254
 };
 
-enum NetworkTransferResult {
-	NET_TRANSFER_RESULT_COMPLETE,
-	NET_TRANSFER_RESULT_BAD_LENGTH,
-	NET_TRANSFER_RESULT_CONNECTION_CLOSED,
-	NET_TRANSFER_RESULT_INCOMPLETE,
-	NET_TRANSFER_RESULT_CONNECTION_FAILURE
-
+// RFC 8446 Section 4.4.2
+enum TLSCertificateType : U8 {
+	TLS_CERTIFICATE_TYPE_X509 = 0,
+	TLS_CERTIFICATE_TYPE_RAW_PUBLIC_KEY = 2
 };
 
-struct TLSRecord {
-	// Records contain less than 2^14 bytes max
-	static constexpr u32 MAX_RECORD_SIZE = 0x4000;
-	// Subtract the bytes for the real record type and the encryption signature
-	static constexpr u32 MAX_APPLICATION_DATA_SIZE = MAX_RECORD_SIZE - 1 - 16;
-	// Add 5 for the header
-	static constexpr u32 DATA_BUFFER_SIZE = MAX_RECORD_SIZE + 5;
-	u8 dataBuffer[DATA_BUFFER_SIZE];
-	u32 dataOffset;
-	u32 numBytesSentOrReceived;
-
-	void write_bytes(const void* bytes, u32 length) {
-		for (u32 i = 0; i < length; i++) {
-			dataBuffer[dataOffset + i] = reinterpret_cast<const u8*>(bytes)[i];
-		}
-		dataOffset += length;
-	}
-
-	void read_bytes(void* bytes, u32 length) {
-		for (u32 i = 0; i < length; i++) {
-			reinterpret_cast<u8*>(bytes)[i] = dataBuffer[dataOffset + i];
-		}
-		dataOffset += length;
-	}
-
-	void write_byte(u8 data) {
-		dataBuffer[dataOffset++] = data;
-	}
-
-	u8 read_byte() {
-		return dataBuffer[dataOffset++];
-	}
-
-	void write_int16(u16 data) {
-		dataBuffer[dataOffset++] = data >> 8;
-		dataBuffer[dataOffset++] = data & 0xFF;
-	}
-
-	void patch_int16(u16 data, u32 pos) {
-		dataBuffer[pos] = data >> 8;
-		dataBuffer[pos + 1] = data & 0xFF;
-	}
-
-	u16 read_int16() {
-		u16 result = (dataBuffer[dataOffset] << 8) | dataBuffer[dataOffset + 1];
-		dataOffset += 2;
-		return result;
-	}
-
-	u16 read_int16(u32 pos) {
-		return (dataBuffer[pos] << 8) | dataBuffer[pos + 1];
-	}
-
-	void write_int24(u32 data) {
-		dataBuffer[dataOffset++] = (data >> 16) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 8) & 0xFF;
-		dataBuffer[dataOffset++] = data & 0xFF;
-	}
-
-	void write_int24(u32 data, u32 pos) {
-		dataBuffer[pos + 0] = (data >> 16) & 0xFF;
-		dataBuffer[pos + 1] = (data >> 8) & 0xFF;
-		dataBuffer[pos + 2] = data & 0xFF;
-	}
-
-	u32 read_int24() {
-		u32 result =
-			(dataBuffer[dataOffset + 0] << 16) |
-			(dataBuffer[dataOffset + 1] << 8) |
-			dataBuffer[dataOffset + 2];
-		dataOffset += 3;
-		return result;
-	}
-
-	void write_int32(u32 data) {
-		dataBuffer[dataOffset++] = data >> 24;
-		dataBuffer[dataOffset++] = (data >> 16) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 8) & 0xFF;
-		dataBuffer[dataOffset++] = data & 0xFF;
-	}
-
-	u32 read_int32() {
-		u32 result =
-			(dataBuffer[dataOffset + 0] << 24) |
-			(dataBuffer[dataOffset + 1] << 16) |
-			(dataBuffer[dataOffset + 2] << 8) |
-			dataBuffer[dataOffset + 3];
-		dataOffset += 4;
-		return result;
-	}
-
-	void write_int64(u64 data) {
-		dataBuffer[dataOffset++] = data >> 56;
-		dataBuffer[dataOffset++] = (data >> 48) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 40) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 32) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 24) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 16) & 0xFF;
-		dataBuffer[dataOffset++] = (data >> 8) & 0xFF;
-		dataBuffer[dataOffset++] = data & 0xFF;
-	}
-
-	u64 read_int64() {
-		u64 result =
-			(static_cast<u64>(dataBuffer[dataOffset + 0]) << 56) |
-			(static_cast<u64>(dataBuffer[dataOffset + 1]) << 48) |
-			(static_cast<u64>(dataBuffer[dataOffset + 2]) << 40) |
-			(static_cast<u64>(dataBuffer[dataOffset + 3]) << 32) |
-			(static_cast<u64>(dataBuffer[dataOffset + 4]) << 24) |
-			(static_cast<u64>(dataBuffer[dataOffset + 5]) << 16) |
-			(static_cast<u64>(dataBuffer[dataOffset + 6]) << 8) |
-			static_cast<u64>(dataBuffer[dataOffset + 7]);
-		dataOffset += 8;
-		return result;
-	}
-
-	u32 write_header(TLSRecordType type) {
-		u32 start = dataOffset;
-		write_byte(type);
-		// 0x0303 means TLS 1.2 (must be sent to this for compatibility with middleboxes that only accept TLS 1.2)
-		write_int16(0x0303);
-		// Length, will be updated when the message is complete
-		write_int16(0);
-		return start;
-	}
-
-	void patch_header_length(u32 recordBegin) {
-		u16 dataLength = dataOffset - 5 - recordBegin;
-		dataBuffer[recordBegin + 3] = dataLength >> 8;
-		dataBuffer[recordBegin + 4] = dataLength & 0xFF;
-	}
-
-	void reset() {
-		dataOffset = 0;
-		numBytesSentOrReceived = 0;
-	}
-
-	void encrypt(u8 key[AES_KEY_SIZE_BYTES], u8 iv[AES_GCM_IV_SIZE], u64& numMessagesEncrypted, u32 recordStart) {
-		u8 modifiedIV[AES_GCM_IV_SIZE];
-		memcpy(modifiedIV, iv, 4);
-		for (u32 i = 4; i < AES_GCM_IV_SIZE; i++) {
-			modifiedIV[i] = iv[i] ^ ((numMessagesEncrypted >> ((AES_GCM_IV_SIZE - 1 - i) * 8)) & 0xFF);
-		}
-		numMessagesEncrypted++;
-
-		patch_int16(dataOffset - recordStart - 5 + 16, recordStart + 3);
-
-		AESGCM aes;
-		aes.init(key, modifiedIV);
-		aes.encrypt(dataBuffer + dataOffset, dataBuffer + recordStart + 5, dataBuffer + recordStart + 5, dataOffset - recordStart - 5, dataBuffer + recordStart, 5);
-		dataOffset += 16;
-	}
-
-	// Expects the record header to already be read
-	b32 decrypt(u8 key[AES_KEY_SIZE_BYTES], u8 iv[AES_GCM_IV_SIZE], u64& numMessagesDecrypted, u32 recordEnd) {
-		u8 modifiedIV[AES_GCM_IV_SIZE];
-		memcpy(modifiedIV, iv, 4);
-		for (u32 i = 4; i < AES_GCM_IV_SIZE; i++) {
-			modifiedIV[i] = iv[i] ^ ((numMessagesDecrypted >> ((AES_GCM_IV_SIZE - 1 - i) * 8)) & 0xFF);
-		}
-		numMessagesDecrypted++;
-
-		AESGCM aes;
-		aes.init(key, modifiedIV);
-		return aes.decrypt(dataBuffer + dataOffset, dataBuffer + (recordEnd - 16), dataBuffer + dataOffset, recordEnd - dataOffset - 16, dataBuffer + dataOffset - 5, 5);
-	}
-
-	void init(TLSRecordType type) {
-		dataOffset = 0;
-		numBytesSentOrReceived = 0;
-		write_byte(type);
-		// 0x0303 means TLS 1.2 (must be sent to this for compatibility with middleboxes that only accept TLS 1.2)
-		write_int16(0x0303);
-		// Length, will be updated when the message is complete
-		write_int16(0);
-	}
-
-	b32 send_completed() {
-		return numBytesSentOrReceived == dataOffset;
-	}
-
-	b32 receive_completed() {
-		if (numBytesSentOrReceived < 5) {
-			return false;
-		}
-		u32 length = read_int16(3);
-		return numBytesSentOrReceived >= length + 5;
-	}
-
-	ConnectionError _send_data(u32 tcpConnectionIdx) {
-		SyscallTCPSendArgs sendArgs;
-		sendArgs.bufferAddress = reinterpret_cast<u64>(dataBuffer + numBytesSentOrReceived);
-		sendArgs.bufferSize = dataOffset - numBytesSentOrReceived;
-		sendArgs.blockIndex = tcpConnectionIdx;
-		i64 dataAccepted = i64(g_syscallProc(SYSCALL_TCP_SEND, reinterpret_cast<u64>(&sendArgs)));
-		if (dataAccepted == -1) {
-			return CONNECTION_ERROR_SEND_FAILED;
-		}
-		numBytesSentOrReceived += dataAccepted;
-		return CONNECTION_ERROR_SUCCESS;
-	}
-
-	NetworkTransferResult _receive_data(u32 tcpConnectionIdx) {
-		SyscallTCPReceiveArgs receiveArgs;
-		receiveArgs.blockIndex = tcpConnectionIdx;
-		receiveArgs.bufferAddress = reinterpret_cast<u64>(dataBuffer + numBytesSentOrReceived);
-		// Make sure to get a header before reading rest of record data so we know how much to read
-		if (numBytesSentOrReceived < 5) {
-			receiveArgs.bufferSize = 5 - numBytesSentOrReceived;
-			i64 amountReceived = i64(g_syscallProc(SYSCALL_TCP_RECEIVE, reinterpret_cast<u64>(&receiveArgs)));
-			if (amountReceived == -1) {
-				return NET_TRANSFER_RESULT_CONNECTION_FAILURE;
-			}
-			numBytesSentOrReceived += amountReceived;
-		}
-		if (numBytesSentOrReceived < 5) {
-			return NET_TRANSFER_RESULT_INCOMPLETE;
-		}
-
-		u32 length = read_int16(3);
-		if (length > MAX_RECORD_SIZE) {
-			return NET_TRANSFER_RESULT_BAD_LENGTH;
-		}
-		if (numBytesSentOrReceived >= length + 5) {
-			return NET_TRANSFER_RESULT_COMPLETE;
-		}
-
-		receiveArgs.bufferAddress = reinterpret_cast<u64>(dataBuffer + numBytesSentOrReceived);
-		receiveArgs.bufferSize = length + 5 - numBytesSentOrReceived;
-		i64 amountReceived = i64(g_syscallProc(SYSCALL_TCP_RECEIVE, reinterpret_cast<u64>(&receiveArgs)));
-		if (amountReceived == -1) {
-			return NET_TRANSFER_RESULT_CONNECTION_FAILURE;
-		}
-		numBytesSentOrReceived += amountReceived;
-		return numBytesSentOrReceived >= length + 5 ? NET_TRANSFER_RESULT_COMPLETE : NET_TRANSFER_RESULT_INCOMPLETE;
-	}
-
-	NetworkTransferResult _receive_all_data(u32 tcpConnectionIdx) {
-		SyscallTCPReceiveArgs receiveArgs;
-		receiveArgs.blockIndex = tcpConnectionIdx;
-		receiveArgs.bufferAddress = reinterpret_cast<u64>(dataBuffer + numBytesSentOrReceived);
-		receiveArgs.bufferSize = DATA_BUFFER_SIZE - numBytesSentOrReceived;
-		i64 amountReceived = i64(g_syscallProc(SYSCALL_TCP_RECEIVE, reinterpret_cast<u64>(&receiveArgs)));
-		if (amountReceived == -1) {
-			return NET_TRANSFER_RESULT_CONNECTION_FAILURE;
-		}
-		numBytesSentOrReceived += amountReceived;
-		if (numBytesSentOrReceived < 5) {
-			return NET_TRANSFER_RESULT_INCOMPLETE;
-		}
-		u32 length = read_int16(3);
-		if (length > MAX_RECORD_SIZE) {
-			return NET_TRANSFER_RESULT_BAD_LENGTH;
-		}
-		if (numBytesSentOrReceived >= length + 5) {
-			return NET_TRANSFER_RESULT_COMPLETE;
-		}
-		return NET_TRANSFER_RESULT_INCOMPLETE;
-	}
+// RFC 8446 Appendix B.4
+enum TLSCipherSuite {
+	TLS_AES_128_GCM_SHA256 = 0x1301,
+	TLS_AES_256_GCM_SHA384 = 0x1302,
+	TLS_CHACHA20_POLY1305_SHA256 = 0x1303,
+	TLS_AES_128_CCM_SHA256 = 0x1304,
+	TLS_AES_128_CCM_8_SHA256 = 0x1305
 };
 
-struct X509Certificate {
-	static constexpr u32 certMaxLength = 10 * 1024;
-	u8 cert[certMaxLength];
-	u32 certLength;
-	BigInteger rsaPrivateKey;
-	BigInteger rsaPublicKey;
-	BigInteger rsaModulus;
-
-	void init() {
-		rsaPrivateKey.init(64);
-		rsaPublicKey.init(64);
-		rsaModulus.init(64);
-	}
+// RFC 6066 section 3
+enum TLSNameType : U8 {
+	TLS_NAME_TYPE_HOST_NAME = 0
 };
 
-enum X509SignatureAlgorithm {
-	X509_SIGNATURE_RSA_GENERIC,
-	X509_SIGNATURE_RSA_PSS,
-	X509_SIGNATURE_EC_GENERIC,
-	X509_SIGNATURE_EC_IMPLICITLY_CA,
-	X509_SIGNATURE_EC_SECP256R1
+enum TLSNamedGroup : U16 {
+	TLS_NAMED_GROUP_SECP256R1 = 0x0017,
+	TLS_NAMED_GROUP_SECP384R1 = 0x0018,
+	TLS_NAMED_GROUP_SECP521R1 = 0x0019,
+
+	TLS_NAMED_GROUP_X25519 = 0x001D,
+	TLS_NAMED_GROUP_X448 = 0x001E,
+
+	TLS_NAMED_GROUP_FFDHE2048 = 0x0100,
+	TLS_NAMED_GROUP_FFDHE3072 = 0x0101,
+	TLS_NAMED_GROUP_FFDHE4096 = 0x0102,
+	TLS_NAMED_GROUP_FFDHE6144 = 0x0103,
+	TLS_NAMED_GROUP_FFDHE8192 = 0x0104
+
+	/* FFDHE Private Use = 0x01FC..0x01FF */
+	/* ECDHE Private Use = 0xFE00..0xFEFF */
 };
 
-b32 parse_asn1_der_cert(X509SignatureAlgorithm* algorithm, void** publicKey, u32* publicKeyLength, void* vcert, u32 certLength) {
-#define CERT_CHECK_ERROR(cond) if(cond){ __debugbreak(); return false; }
-	ASN1Reader cert{ vcert, certLength };
-	u32 tagId;
-	ASN1ClassOfTag tagClass;
-	// Cert sequence
-	u32 certSequenceEnd = cert.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
+// RFC 8446 Section 4.2.3
+enum TLSSignatureScheme : U16 {
+	// RSASSA-PKCS1-v1_5 algorithms
+	TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA256 = 0x0401,
+	TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA384 = 0x0501,
+	TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA512 = 0x0601,
 
-	{ // TBSCertificate sequence (TBS means To Be Signed)
-		enum TBSCertContextTags {
-			TBS_ID_VERSION = 0,
-			TBS_ID_ISSUER_UNIQUE_ID = 1,
-			TBS_ID_SUBJECT_UNIQUE_ID = 2,
-			TBS_ID_EXTENSIONS = 3
-		};
-		u32 tbsCertSequenceEnd = cert.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
+	// ECDSA algorithms
+	TLS_SIGNATURE_SCHEME_ECDSA_SECP256R1_SHA256 = 0x0403,
+	TLS_SIGNATURE_SCHEME_ECDSA_SECP384R1_SHA384 = 0x0503,
+	TLS_SIGNATURE_SCHEME_ECDSA_SECP521R1_SHA512 = 0x0603,
 
-		// version (MUST be present in TLS 1.3, since the default is v1 and TLS 1.3 requires v3)
-		u32 versionEnd = cert.read_expected_identifier_end(ASN1_CLASS_CONTEXT_SPECIFIC, TBS_ID_VERSION);
-		i64 version = cert.read_integer_tag();
-		// verify version 3
-		CERT_CHECK_ERROR(version != 2);
-		cert.verify_section_complete(versionEnd);
+	// RSASSA-PSS algorithms with public key OID rsaEncryption
+	TLS_SIGNATURE_SCHEME_RSA_PSS_RSAE_SHA256 = 0x0804,
+	TLS_SIGNATURE_SCHEME_RSA_PSS_RSAE_SHA384 = 0x0805,
+	TLS_SIGNATURE_SCHEME_RSA_PSS_RSAE_SHA512 = 0x0806,
 
-		// skip serial number
-		cert.skip_field();
+	// EdDSA algorithms
+	TLS_SIGNATURE_SCHEME_ED25519 = 0x0807,
+	TLS_SIGNATURE_SCHEME_ED448 = 0x0808,
 
-		{ // AlgorithmIdentifier sequence, signature field
-			u32 signatureEnd = cert.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
+	// RSASSA-PSS algorithms with public key OID RSASSA-PSS
+	TLS_SIGNATURE_SCHEME_RSA_PSS_PSS_SHA256 = 0x0809,
+	TLS_SIGNATURE_SCHEME_RSA_PSS_PSS_SHA384 = 0x080a,
+	TLS_SIGNATURE_SCHEME_RSA_PSS_PSS_SHA512 = 0x080b,
 
-			TLSSignatureScheme certificateSignatureScheme;
-			u32 algorithmIdentifierLength = cert.read_expected_identifier_length(ASN1_CLASS_UNIVERSAL, ASN1_OBJECT_IDENTIFIER);
-			if (cert.oid_match(ASN1_OID_RSA_PKCS1_SHA256, sizeof(ASN1_OID_RSA_PKCS1_SHA256) / sizeof(u32), algorithmIdentifierLength)) {
-				certificateSignatureScheme = TLS_RSA_PKCS1_SHA256;
-				cert.read_null_tag();
-			} else if (cert.oid_match(ASN1_OID_RSASSA_PSS, sizeof(ASN1_OID_RSASSA_PSS) / sizeof(u32), algorithmIdentifierLength)) {
-				// In this case, the hash algorithm is found in the parameters
-				certificateSignatureScheme = TLS_RSS_PSS_PSS_SHA256;
-				//TODO
-			} else if (cert.oid_match(ASN1_OID_ECDSA_SHA256, sizeof(ASN1_OID_ECDSA_SHA256) / sizeof(u32), algorithmIdentifierLength)) {
-				certificateSignatureScheme = TLS_ECDSA_SECP256R1_SHA256;
-			} else {
-				CERT_CHECK_ERROR(true);
-			}
+	// Legacy algorithms
+	TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA1 = 0x0201,
+	TLS_SIGNATURE_SCHEME_ECDSA_SHA1 = 0x0203
 
-			cert.verify_section_complete(signatureEnd);
-		}
-
-		// Skip issuer field
-		cert.skip_field();
-		// Skip validity field
-		cert.skip_field();
-		// Skip subject field
-		cert.skip_field();
-
-		{ // SubjectPublicKeyInfo structure, subjectPublicKeyInfo field
-			u32 subjectPublicKeyInfoEnd = cert.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
-			{ // AlgorithmIdentifier sequence, algorithm field
-				u32 algorithmEnd = cert.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
-
-				u32 algorithmIdentifierLength = cert.read_expected_identifier_length(ASN1_CLASS_UNIVERSAL, ASN1_OBJECT_IDENTIFIER);
-				if (cert.oid_match(ASN1_OID_RSA_ENCRYPTION, sizeof(ASN1_OID_RSA_ENCRYPTION) / sizeof(u32), algorithmIdentifierLength)) {
-					cert.read_null_tag();
-					*algorithm = X509_SIGNATURE_RSA_GENERIC;
-				} else if (cert.oid_match(ASN1_OID_RSASSA_PSS, sizeof(ASN1_OID_RSASSA_PSS) / sizeof(u32), algorithmIdentifierLength)) {
-					cert.read_null_tag();
-					*algorithm = X509_SIGNATURE_RSA_PSS;
-				} else if (cert.oid_match(ASN1_OID_EC_PUBLIC_KEY, sizeof(ASN1_OID_EC_PUBLIC_KEY) / sizeof(u32), algorithmIdentifierLength)) {
-					// This is actually a choice between a generic ECParameters, a named curve identifier, and implicitly CA
-					// I'm only supporting named curves
-					u32 curveIdentifierLength = cert.read_expected_identifier_length(ASN1_CLASS_UNIVERSAL, ASN1_OBJECT_IDENTIFIER);
-					if (cert.oid_match(ASN1_OID_CURVE_SECP256R1, sizeof(ASN1_OID_CURVE_SECP256R1) / sizeof(u32), curveIdentifierLength)) {
-						*algorithm = X509_SIGNATURE_EC_SECP256R1;
-					} else {
-						CERT_CHECK_ERROR(true);
-					}
-				} else {
-					CERT_CHECK_ERROR(true);
-				}
-
-				cert.verify_section_complete(algorithmEnd);
-			}
-
-			u32 subjectPublicKeyLength = cert.read_expected_identifier_length(ASN1_CLASS_UNIVERSAL, ASN1_BIT_STRING);
-			u32 subjectPublicKeyBitLength;
-			u8* subjectPublicKey = cert.read_bitstring(subjectPublicKeyLength, &subjectPublicKeyBitLength);
-			*publicKey = subjectPublicKey;
-			*publicKeyLength = (subjectPublicKeyBitLength + 7) / 8;
-
-			cert.verify_section_complete(subjectPublicKeyInfoEnd);
-		}
-
-		// Skip optional issuerUniqueID
-		tagClass = cert.read_identifier(&tagId);
-		if (tagClass == ASN1_CLASS_CONTEXT_SPECIFIC && tagId == 1) {
-			// Skip issuerUniqueID
-			cert.pos += cert.read_length();
-			tagClass = cert.read_identifier(&tagId);
-		}
-		if (tagClass == ASN1_CLASS_CONTEXT_SPECIFIC && tagId == 2) {
-			// Skip subjectUniqueID
-			cert.pos += cert.read_length();
-			tagClass = cert.read_identifier(&tagId);
-		}
-		if (tagClass == ASN1_CLASS_CONTEXT_SPECIFIC && tagId == 3) {
-			// Skip extensions
-			cert.pos += cert.read_length();
-		}
-
-		cert.verify_section_complete(tbsCertSequenceEnd);
-	}
-
-	// Skip signatureAlgorithm
-	cert.skip_field();
-	// Skip signatureValue
-	cert.skip_field();
-
-	cert.verify_section_complete(certSequenceEnd);
-	CERT_CHECK_ERROR(cert.errored);
-#undef CERT_CHECK_ERROR
-	return true;
-}
-
-enum TLSServerState {
-	TLS_SERVER_STATE_HELLO,
-	TLS_SERVER_STATE_HANDSHAKE,
-	TLS_SERVER_STATE_APPLICATION,
-	TLS_SERVER_STATE_CLOSE_PENDING
+	// reserved for private use = 0xFE00..0xFFFF
 };
+
+// RFC 8446 Appendix A.1
+enum TLSConnectionState {
+	TLS_CONNECTION_STATE_CLOSED,
+	TLS_CONNECTION_STATE_START,
+	TLS_CLIENT_STATE_WAIT_SERVER_HELLO,
+	TLS_CLIENT_STATE_WAIT_ENCRYPTED_EXTENSIONS,
+	TLS_CLIENT_STATE_WAIT_CERTIFICATE_CERTIFICATE_REQUEST,
+	TLS_SERVER_STATE_RECEIVED_CLIENT_HELLO,
+	TLS_SERVER_STATE_NEGOTIATED, // Not necessary, but implemented to follow the RFC state diagram
+	TLS_SERVER_STATE_WAIT_END_OF_EARLY_DATA, // Not relevant, since we're not doing 0-RTT
+	TLS_SERVER_STATE_WAIT_FLIGHT2, // Not necessary, but implemented to follow the RFC state diagram
+	TLS_CONNECTION_STATE_WAIT_CERTIFICATE, // Not used in server mode, since we don't ask for client auth
+	TLS_CONNECTION_STATE_WAIT_CERTIFICATE_VERIFY, // Not used in server mode, since we don't ask for client auth
+	TLS_CONNECTION_STATE_WAIT_FINISHED,
+	TLS_CONNECTION_STATE_CONNECTED,
+	TLS_CONNECTION_STATE_ALERT_PENDING,
+	TLS_CONNECTION_STATE_CLOSE_PENDING
+};
+
+#define TLS_PROTOCOL_VERSION_1_3 0x0304
+#define TLS_PROTOCOL_VERSION_1_2 0x0303
+#define TLS_MAX_RECORD_DATA_LENGTH (1 << 14)
+#define TLS_MAX_RECORD_AUTH_TAG_LENGTH 256
+#define TLS_MAX_RECORD_LENGTH (TLS_MAX_RECORD_DATA_LENGTH + TLS_MAX_RECORD_AUTH_TAG_LENGTH)
+
+#pragma pack(push, 1)
+struct TLSRecordHeader {
+	TLSContentType contentType;
+	U16 protocolVersion;
+	U16 length;
+};
+#pragma pack(pop)
 
 struct TLSSendEntry {
-	// Null if should send from the internal send buffer
-	u8* resource;
-	u32 size;
+	// Null if should send from internal send buffer
+	const Byte* resource;
+	U32 size;
 };
 
-struct TLSServerClientConnection {
-	// Keeping two here to send a message while another is being received. Wastes 16 kb, whatever.
-	TLSRecord sendRecord;
-	TLSRecord receiveRecord;
-	u32 dataLeftInReceiveRecord;
-	SHA256 runningMessageHash;
-	u32 clientTCPConnection;
-	TLSServerState serverState;
-	u64 connectionId;
-	u8 sessionId[32];
-	u8 serverPrivateKey[32];
-	u8 clientPublicKey[32 + 32];
-	u8 masterSecret[SHA256_HASH_SIZE];
+// I'm a bit conflicted as to whether this macro is a good idea or not, since it can make control flow less obvious
+// I eventually decided yes because it removes a lot of error checking noise
+// I think that makes the code nicer to read and nicer to write
+#define TLS_VERIFY_ALERT_RETURN(toCheck, alert) if (!(toCheck)){ error_alert(TLS_ALERT_##alert); return; } static_assert(true, "")
+
+struct TLSConnection {
+	Byte receiveBuffer[32 * 1024];
+	Byte sendBuffer[16 * 1024];
+	Byte sendRecord[sizeof(TLSRecordHeader) + TLS_MAX_RECORD_LENGTH];
+	U32 sendBufferPos; // The current send position in the send buffer
+	U32 sendBufferDataEnd; // The end of data to be sent in the send buffer
+	U32 sendRecordPos; // The current buffer position to send from
+	U32 sendRecordDataEnd; // The end of data to send in the send record
+	U32 receiveBufferUserReadPos; // The start of data the user should be able to read
+	U32 receiveBufferUserDataEnd; // The end of data the user should be able to read
+	U32 receiveBufferDataEnd; // The end of meaningful data in the receive buffer (also contains partial records to be decrypted)
+	U32 currentRecordReceiveLength;
+	TLSRecordHeader currentReceiveHeader;
+
+	static constexpr U32 sendQueueCap = 1 << 6;
+	static constexpr U32 sendQueueMask = sendQueueCap - 1;
+	TLSSendEntry sendQueue[sendQueueCap];
+	U32 sendQueueWritePos;
+	U32 sendQueueReadPos;
+
 	X509Certificate* certificate;
 
-	// Encryption keys
-	u8 clientTrafficSecret[SHA256_HASH_SIZE];
-	u8 clientKey[AES_KEY_SIZE_BYTES];
-	u8 clientIV[AES_GCM_IV_SIZE];
-	u64 clientMessageDecryptCount;
-	u8 serverTrafficSecret[SHA256_HASH_SIZE];
-	u8 serverKey[AES_KEY_SIZE_BYTES];
-	u8 serverIV[AES_GCM_IV_SIZE];
-	u64 serverMessageEncryptCount;
-	b32 shouldKeyUpdate;
-	b32 shouldSendKeyUpdate;
+	U32 tcpConnection;
+	Byte diffieHellmanPrivateKey[SECP256R1_KEY_SIZE];
+	Byte diffieHellmanPublicKey[SECP256R1_KEY_SIZE * 2];
+	X509SignatureAlgorithm certSignatureAlgorithm;
+	BigInteger certRSAModulusOrECDSAPointX;
+	BigInteger certRSAPublicKeyOrECDSAPointY;
+	Byte masterSecret[SHA256_HASH_SIZE];
+	Byte serverTrafficSecret[SHA256_HASH_SIZE];
+	Byte serverKey[AES_KEY_SIZE_BYTES];
+	Byte serverIV[AES_GCM_IV_SIZE];
+	Byte clientTrafficSecret[SHA256_HASH_SIZE];
+	Byte clientKey[AES_KEY_SIZE_BYTES];
+	Byte clientIV[AES_GCM_IV_SIZE];
+	U64 encryptedMessageCounter;
+	U64 decryptedMessageCounter;
+	B32 shouldKeyUpdate;
+	B32 shouldSendKeyUpdate;
+	SHA256 transcriptHash;
 
-	TLSCipherSuite cipherSuite;
+	TLSConnectionState state;
+	B32 isServer;
+	TLSAlertDescription closePendingAlert;
 
-	u32 sendBufferPos;
-	u32 sendBufferDataEnd;
-	u32 receiveBufferPos;
-	u32 receiveBufferDataEnd;
-	u32 sendQueueWritePos;
-	u32 sendQueueReadPos;
-	static constexpr u32 sendBufferCap = 8 * 1024;
-	u8 sendBuffer[sendBufferCap];
-	static constexpr u32 receiveBufferCap = 8 * 1024;
-	u8 receiveBuffer[receiveBufferCap];
-	static constexpr u32 sendQueueCap = 1 << 6;
-	static constexpr u32 sendQueueMask = sendQueueCap - 1;
-	TLSSendEntry sendQueue[sendQueueCap];
-
-	b32 init(u32 tcpConnectionIdx) {
-		clientTCPConnection = tcpConnectionIdx;
-		serverState = TLS_SERVER_STATE_HELLO;
-		sendRecord.reset();
-		receiveRecord.reset();
-		dataLeftInReceiveRecord = 0;
-		runningMessageHash.init();
-		shouldKeyUpdate = false;
-		shouldSendKeyUpdate = false;
-		sendBufferPos = 0;
-		sendBufferDataEnd = 0;
-		receiveBufferPos = 0;
-		receiveBufferDataEnd = 0;
-		sendQueueWritePos = 0;
-		sendQueueReadPos = 0;
-		return true;
+	void send_to_tcp() {
+		if (sendRecordPos == sendRecordDataEnd) {
+			sendRecordPos = sendRecordDataEnd = 0;
+			return;
+		}
+		SyscallTCPSendArgs sendArgs;
+		sendArgs.bufferAddress = U64(sendRecord + sendRecordPos);
+		sendArgs.bufferSize = sendRecordDataEnd - sendRecordPos;
+		sendArgs.blockIndex = tcpConnection;
+		I64 dataAccepted = I64(g_syscallProc(SYSCALL_TCP_SEND, U64(&sendArgs)));
+		if (dataAccepted >= 0) {
+			sendRecordPos += dataAccepted;
+		} else {
+			close_no_alert();
+		}
 	}
 
-#ifdef _DEBUG
-#define CONNECTION_ERROR serverState = TLS_SERVER_STATE_CLOSE_PENDING; return
-#else
-#define CONNECTION_ERROR serverState = TLS_SERVER_STATE_CLOSE_PENDING; return
-#endif
-#define CHECK_CONNECTION_PROBLEM(cond) if(cond) { CONNECTION_ERROR; }
+	void close_no_alert() {
+		if (state == TLS_CONNECTION_STATE_CLOSED) {
+			return;
+		}
+		TLS_DEBUG_LOG("CLOSING TCP CONNECTION\n", 2);
+		g_syscallProc(SYSCALL_TCP_CLOSE, tcpConnection);
+		tcpConnection = TCP_CONNECTION_BLOCK_INVALID_IDX;
+		state = TLS_CONNECTION_STATE_CLOSED;
+	}
 
-	void calc_handshake_keys() {
+	void send_alert_record(TLSAlertDescription alert) {
+		if (sizeof(sendRecord) - sendRecordDataEnd < 32) {
+			// No space
+			return;
+		}
+		if (sendRecordPos == sendRecordDataEnd) {
+			sendRecordPos = sendRecordDataEnd = 0;
+		}
+		U32 recordStart = sendRecordDataEnd;
+		BigEndianByteBuf record;
+		record.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+		if (state > TLS_CLIENT_STATE_WAIT_SERVER_HELLO) {
+			// Send alert encrypted
+			// Record header
+			record.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA); // type
+			record.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+			record.write_u16(3); // length
+			//struct {
+			//	opaque content[TLSPlaintext.length];
+			//	ContentType type;
+			//	uint8 zeros[length_of_padding];
+			//} TLSInnerPlaintext;
+			//struct {
+			//	AlertLevel level;
+			//	AlertDescription description;
+			//} Alert;
+			record.write_u8(alert == TLS_ALERT_CLOSE_NOTIFY ? TLS_ALERT_LEVEL_WARNING : TLS_ALERT_LEVEL_FATAL);
+			record.write_u8(alert);
+			record.write_u8(TLS_CONTENT_TYPE_ALERT);
+			sendRecordDataEnd += record.offset;
+			// No zero padding
+			encrypt_record(recordStart);
+		} else {
+			// Send alert unencrypted
+			// Record header
+			record.write_u8(TLS_CONTENT_TYPE_ALERT); // type
+			record.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+			record.write_u16(2); // length
+			//struct {
+			//	AlertLevel level;
+			//	AlertDescription description;
+			//} Alert;
+			record.write_u8(TLS_ALERT_LEVEL_FATAL);
+			record.write_u8(alert);
+		}
+		send_to_tcp();
+		if (state == TLS_CONNECTION_STATE_CLOSED) {
+			// TCP error
+			return;
+		}
+	}
+
+	// Called from errors processing received messages or from a user close
+	void error_alert(TLSAlertDescription alert) {
+		if (alert != TLS_ALERT_CLOSE_NOTIFY) {
+			TLS_DEBUG_LOG("ALERT TRIGGERED\n", 1);
+		}
+		if (state == TLS_CONNECTION_STATE_CLOSED || state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
+			return;
+		}
+		closePendingAlert = alert;
+		if (state != TLS_CONNECTION_STATE_CONNECTED) {
+			if (alert == TLS_ALERT_CLOSE_NOTIFY) {
+				// This alert is more appropriate for cancellation during a handshake
+				alert = TLS_ALERT_USER_CANCELED;
+			}
+			// Clear data pending send, since we never completed a handshake
+			sendQueueReadPos = sendQueueWritePos = 0;
+			shouldKeyUpdate = shouldSendKeyUpdate = false;
+			// Send immediately if in handshake
+			send_alert_record(alert);
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// TCP error
+				return;
+			}
+			if (sendRecordPos == sendRecordDataEnd) {
+				close_no_alert();
+				return;
+			}
+			state = TLS_CONNECTION_STATE_CLOSE_PENDING;
+		} else {
+			state = TLS_CONNECTION_STATE_ALERT_PENDING;
+		}
+	}
+
+	void decrypt_record(U32 offset, U32 length) {
+		if (length < 16) {
+			error_alert(TLS_ALERT_DECRYPT_ERROR);
+			return;
+		}
+		U8 iv[AES_GCM_IV_SIZE];
+		memcpy(iv, isServer ? clientIV : serverIV, AES_GCM_IV_SIZE);
+		for (U32 i = 0; i < 8; i++) {
+			iv[i + 4] ^= (decryptedMessageCounter >> ((7 - i) * 8)) & 0xFF;
+		}
+		decryptedMessageCounter++;
+		AESGCM aes;
+		aes.init(isServer ? clientKey : serverKey, iv);
+		B32 successfulDecrypt = aes.decrypt(receiveBuffer + offset, receiveBuffer + offset + length - 16, receiveBuffer + offset, length - 16, &currentReceiveHeader, 5);
+		if (!successfulDecrypt) {
+			error_alert(TLS_ALERT_DECRYPT_ERROR);
+		}
+	}
+
+	void encrypt_record(U32 offset) {
+		U32 fullLength = sendRecordDataEnd - offset;
+		if (sendRecordDataEnd + 16 >= sizeof(sendRecord)) {
+			// Should never happen
+			error_alert(TLS_ALERT_INTERNAL_ERROR);
+			return;
+		}
+		Byte* iv = isServer ? serverIV : clientIV;
+		U8 modifiedIV[AES_GCM_IV_SIZE];
+		memcpy(modifiedIV, iv, 4);
+		for (U32 i = 4; i < AES_GCM_IV_SIZE; i++) {
+			modifiedIV[i] = iv[i] ^ ((encryptedMessageCounter >> ((AES_GCM_IV_SIZE - 1 - i) * 8)) & 0xFF);
+		}
+		encryptedMessageCounter++;
+
+		// Minus 5 for record header, plus 16 for auth tag
+		U16 recordLength = fullLength - 5 + 16;
+		// Patch record header length
+		sendRecord[offset + 3] = recordLength >> 8;
+		sendRecord[offset + 4] = recordLength & 0xFF;
+
+		AESGCM aes;
+		aes.init(isServer ? serverKey : clientKey, modifiedIV);
+		aes.encrypt(sendRecord + offset + fullLength, sendRecord + offset + 5, sendRecord + offset + 5, fullLength - 5, sendRecord + offset, 5);
+		sendRecordDataEnd += 16;
+	}
+
+	enum ServerResponseType {
+		SERVER_RESPONSE_NORMAL,
+		SERVER_RESPONSE_RETRY_REQUEST
+	};
+
+	// Handles the RECVD_CH and NEGOTIATED states
+	// If retry request, sends only the hello part with the hello retry request random magic
+	// Otherwise, sends hello, encrypted extensions, cert/cert verify, finished, and transitions to application keys
+	void send_server_response_to_hello(ServerResponseType helloType, Byte* clientLegacySessionId, U32 clientLegacySessionIdLength, TLSCipherSuite chosenCipherSuite, Byte* clientPublicKey) {
+		TLS_DEBUG_LOG("SEND SERVER_HELLO\n", 3);
+
+		if (helloType == SERVER_RESPONSE_RETRY_REQUEST) {
+			// Update hash according to RFC 8446 section 4.4.1
+			U8 clientHello1HashData[4 + SHA256_HASH_SIZE];
+			clientHello1HashData[0] = TLS_HANDSHAKE_TYPE_MESSAGE_HASH;
+			clientHello1HashData[1] = 0;
+			clientHello1HashData[2] = 0;
+			clientHello1HashData[3] = SHA256_HASH_SIZE;
+			transcriptHash.digest(clientHello1HashData + 4);
+			transcriptHash.init();
+			transcriptHash.update(clientHello1HashData, sizeof(clientHello1HashData));
+		}
+
+		BigEndianByteBuf hello;
+		hello.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+
+		// Record header
+		hello.write_u8(TLS_CONTENT_TYPE_HANDSHAKE); // type
+		hello.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		U32 recordLengthPatchPos = hello.write_u16(0); // length
+
+		// Write a handshake server hello message
+		hello.write_u8(TLS_HANDSHAKE_TYPE_SERVER_HELLO); // msg_type
+		U32 handshakeMessageLengthPatchPos = hello.write_u24(0); // length
+
+		//struct {
+		//	ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
+		//	Random random;
+		//	opaque legacy_session_id_echo<0..32>;
+		//	CipherSuite cipher_suite;
+		//	uint8 legacy_compression_method = 0;
+		//	Extension extensions<6..2^16-1>;
+		//} ServerHello;
+		hello.write_u16(TLS_PROTOCOL_VERSION_1_2); // legacy_version
+		Keccak random;
+		random.make_secure_random();
+		if (helloType == SERVER_RESPONSE_RETRY_REQUEST) {
+			hello.write_bytes(tlsHelloRetryRequestMagic, sizeof(tlsHelloRetryRequestMagic));
+		} else {
+			random.squeeze(hello.bytes + hello.offset, 32); // random
+			hello.offset += 32;
+		}
+		hello.write_u8(clientLegacySessionIdLength);
+		hello.write_bytes(clientLegacySessionId, clientLegacySessionIdLength); // legacy_session_id_echo
+		hello.write_u16(chosenCipherSuite); // cipher_suite
+		hello.write_u8(0); // legacy_compression_method
+
+		// Write extensions
+		U32 extensionsPatchPos = hello.write_u16(0);
+
+		//struct {
+		//	ExtensionType extension_type;
+		//	opaque extension_data<0..2^16-1>;
+		//} Extension;
+
+		{
+			// This extension tells the server that we're using TLS 1.3, not 1.2
+			hello.write_u16(TLS_EXTENSION_TYPE_SUPPORTED_VERSIONS);
+			hello.write_u16(2);
+			//struct {
+			//	select (Handshake.msg_type) {
+			//		case client_hello:
+			//			 ProtocolVersion versions<2..254>;
+			//
+			//		case server_hello: /* and HelloRetryRequest */
+			//			 ProtocolVersion selected_version;
+			//	};
+			//} SupportedVersions;
+			hello.write_u16(TLS_PROTOCOL_VERSION_1_3);
+		}
+
+		{
+			hello.write_u16(TLS_EXTENSION_TYPE_KEY_SHARE);
+			U32 extensionPatchPos = hello.write_u16(0);
+			if (helloType == SERVER_RESPONSE_RETRY_REQUEST) {
+				//struct {
+				//	NamedGroup selected_group;
+				//} KeyShareHelloRetryRequest;
+				hello.write_u16(TLS_NAMED_GROUP_SECP256R1);
+			} else {
+				//struct {
+				//	NamedGroup group;
+				//	opaque key_exchange<1..2^16-1>;
+				//} KeyShareEntry;
+				//struct {
+				//	KeyShareEntry server_share;
+				//} KeyShareServerHello;
+				hello.write_u16(TLS_NAMED_GROUP_SECP256R1);
+				U32 keyExchangePatchPos = hello.write_u16(0);
+				// Write public key
+				// 4 means the key is not sent compressed
+				// I'm not figuring out how to write code to compress a key that is only 64 bytes long
+				hello.write_u8(4);
+				hello.write_bytes(diffieHellmanPublicKey, 32 + 32);
+				hello.patch_u16(keyExchangePatchPos, hello.offset - keyExchangePatchPos - 2);
+			}
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		hello.patch_u16(extensionsPatchPos, hello.offset - extensionsPatchPos - 2);
+		hello.patch_u24(handshakeMessageLengthPatchPos, hello.offset - handshakeMessageLengthPatchPos - 3);
+		hello.patch_u16(recordLengthPatchPos, hello.offset - recordLengthPatchPos - 2);
+
+		transcriptHash.update(hello.bytes + 5, hello.offset - 5);
+
+		sendRecordDataEnd += hello.offset;
+
+		if (helloType == SERVER_RESPONSE_RETRY_REQUEST) {
+			send_data();
+			state = TLS_CONNECTION_STATE_START;
+			if (tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+				// Send error occured
+				state = TLS_CONNECTION_STATE_CLOSED;
+			}
+			return;
+		}
+
+		// Handshake key calc
+		const U32 hashLength = SHA256_HASH_SIZE;
+		const U32 encryptionKeySize = AES_KEY_SIZE_BYTES;
+		U8 clientToServerHelloHash[hashLength];
 		SHA256 tmpHash;
-		tmpHash.copy_from(runningMessageHash);
-		u8 clientToServerHelloHash[SECP256R1_KEY_SIZE * 2];
+		tmpHash.copy_from(transcriptHash);
 		tmpHash.digest(clientToServerHelloHash);
 
-		const u32 hashLength = SHA256_HASH_SIZE;
-		const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-		const u32 encryptionIVSize = AES_GCM_IV_SIZE;
-
-		u8 earlySecret[hashLength];
-		u8 zeros[hashLength]{};
-		u8 hashedZeros[hashLength]{};
-		u8 emptyHash[hashLength];
-		sha256(hashedZeros, zeros, hashLength);
+		U8 earlySecret[hashLength];
+		U8 zeros[hashLength]{};
+		U8 emptyHash[hashLength];
 		sha256(emptyHash, "", 0);
-
 		// early secret
 		sha256_hkdf_extract(earlySecret, "", 0, zeros, hashLength);
-
 		// handshake secret
-		u8 derivedSecret[hashLength];
+		U8 derivedSecret[hashLength];
 		sha256_derive_secret(derivedSecret, hashLength, earlySecret, hashLength, "derived", 7, emptyHash, hashLength);
-		u8 sharedSecret[hashLength];
 
-		b32 keyCalcSuccess = secp256r1_ecdhe(sharedSecret, clientPublicKey, clientPublicKey + 32, serverPrivateKey);
-		CHECK_CONNECTION_PROBLEM(!keyCalcSuccess);
+		U8 sharedSecret[hashLength];
+		B32 keyCalcSuccess = secp256r1_ecdhe(sharedSecret, clientPublicKey, clientPublicKey + 32, diffieHellmanPrivateKey);
+		TLS_VERIFY_ALERT_RETURN(keyCalcSuccess, HANDSHAKE_FAILURE);
 
-		u8 handshakeSecret[hashLength];
-		sha256_hkdf_extract(handshakeSecret, derivedSecret, hashLength, sharedSecret, hashLength);
-		
-
-		// handshake keys
+		U8 handshakeSecret[hashLength];
+		sha256_hkdf_extract(handshakeSecret, derivedSecret, hashLength, sharedSecret, 32);
+		// Calc client and server handshake keys
 		sha256_derive_secret(clientTrafficSecret, hashLength, handshakeSecret, hashLength, "c hs traffic", 12, clientToServerHelloHash, hashLength);
-		sha256_hkdf_expand_label(clientKey, encryptionKeySize, clientTrafficSecret, hashLength, "key", 3, "", 0);
-		sha256_hkdf_expand_label(clientIV, encryptionIVSize, clientTrafficSecret, hashLength, "iv", 2, "", 0);
-		clientMessageDecryptCount = 0;
-
 		sha256_derive_secret(serverTrafficSecret, hashLength, handshakeSecret, hashLength, "s hs traffic", 12, clientToServerHelloHash, hashLength);
+		sha256_hkdf_expand_label(clientKey, encryptionKeySize, clientTrafficSecret, hashLength, "key", 3, "", 0);
 		sha256_hkdf_expand_label(serverKey, encryptionKeySize, serverTrafficSecret, hashLength, "key", 3, "", 0);
-		sha256_hkdf_expand_label(serverIV, encryptionIVSize, serverTrafficSecret, hashLength, "iv", 2, "", 0);
-		serverMessageEncryptCount = 0;
-
+		sha256_hkdf_expand_label(clientIV, 12, clientTrafficSecret, hashLength, "iv", 2, "", 0);
+		sha256_hkdf_expand_label(serverIV, 12, serverTrafficSecret, hashLength, "iv", 2, "", 0);
 
 		// master secret
 		sha256_derive_secret(derivedSecret, hashLength, handshakeSecret, hashLength, "derived", 7, emptyHash, hashLength);
 		sha256_hkdf_extract(masterSecret, derivedSecret, hashLength, zeros, hashLength);
+
+		encryptedMessageCounter = 0;
+		decryptedMessageCounter = 0;
+
+		// Change cipher spec isn't really necessary, but we'll send it for middlebox compatibility
+		// Should be sent sometime between ClientHello and Finished
+		BigEndianByteBuf& changeCipherSpec = hello;
+		changeCipherSpec.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+		// Record header
+		changeCipherSpec.write_u8(TLS_CONTENT_TYPE_CHANGE_CIPHER_SPEC); // type
+		changeCipherSpec.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		changeCipherSpec.write_u16(1); // length
+		changeCipherSpec.write_u8(1); // Change cipher spec is defined to contain exactly one byte, 0x01
+		sendRecordDataEnd += changeCipherSpec.offset;
+
+
+		BigEndianByteBuf& handshakeResponse = hello;
+		handshakeResponse.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+		U32 handshakeResponseOffset = sendRecordDataEnd;
+		// Record header
+		handshakeResponse.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA); // type
+		handshakeResponse.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		recordLengthPatchPos = handshakeResponse.write_u16(0); // length
+
+		U32 transcriptHashPos = handshakeResponse.offset;
+
+		// EncryptedExtensions
+		handshakeResponse.write_u8(TLS_HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS); // msg_type
+		U32 encryptedExtensionsPatchPos = handshakeResponse.write_u24(0); // length
+		//struct {
+		//	Extension extensions<0..2^16-1>;
+		//} EncryptedExtensions;
+		handshakeResponse.write_u16(0); // no encrypted extensions
+		handshakeResponse.patch_u24(encryptedExtensionsPatchPos, handshakeResponse.offset - encryptedExtensionsPatchPos - 3);
+
+		if (certificate) {
+			// Certificate
+			handshakeResponse.write_u8(TLS_HANDSHAKE_TYPE_CERTIFICATE);
+			U32 certificatePatchPos = handshakeResponse.write_u24(0);
+			//struct {
+			//	opaque certificate_request_context<0..2^8-1>;
+			//	CertificateEntry certificate_list<0..2^24-1>;
+			//} Certificate;
+			handshakeResponse.write_u8(0); // no request context
+			U32 certificateListPatchPos = handshakeResponse.write_u24(0);
+			//struct {
+			//	select (certificate_type) {
+			//    case RawPublicKey:
+			//      /* From RFC 7250 ASN.1_subjectPublicKeyInfo */
+			//      opaque ASN1_subjectPublicKeyInfo<1..2^24-1>;
+			//    case X509:
+			//      opaque cert_data<1..2^24-1>;
+			//	};
+			//	Extension extensions<0..2^16-1>;
+			//} CertificateEntry;
+			// We're always X509
+			handshakeResponse.write_u24(certificate->certLength);
+			handshakeResponse.write_bytes(certificate->cert, certificate->certLength);
+			handshakeResponse.write_u16(0); // no extensions
+			handshakeResponse.patch_u24(certificateListPatchPos, handshakeResponse.offset - certificateListPatchPos - 3);
+			handshakeResponse.patch_u24(certificatePatchPos, handshakeResponse.offset - certificatePatchPos - 3);
+			transcriptHash.update(handshakeResponse.bytes + transcriptHashPos, handshakeResponse.offset - transcriptHashPos);
+			transcriptHashPos = handshakeResponse.offset;
+
+			// CertificateVerify
+			handshakeResponse.write_u8(TLS_HANDSHAKE_TYPE_CERTIFICATE_VERIFY);
+			U32 certificateVerifyPatchPos = handshakeResponse.write_u24(0);
+			//struct {
+			//	SignatureScheme algorithm;
+			//	opaque signature<0..2^16-1>;
+			//} CertificateVerify;
+			handshakeResponse.write_u16(TLS_SIGNATURE_SCHEME_RSA_PSS_RSAE_SHA256);
+			U32 signatureLengthPatchPos = handshakeResponse.write_u16(0);
+			// The signature is over 64 0x20s followed by "TLS 1.3, server CertificateVerify" followed by a null separator followed by the transcript hash
+			Byte toSign[64 + 33 + 1 + SHA256_HASH_SIZE];
+			memcpy(toSign, "\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20TLS 1.3, server CertificateVerify", 64 + 33 + 1);
+			tmpHash.copy_from(transcriptHash);
+			tmpHash.digest(toSign + 64 + 33 + 1);
+			const U32 rsaBits = 2048;
+			const U32 signatureLength = rsaBits / 8;
+			rsassa_pss_sign_sha256(handshakeResponse.bytes + handshakeResponse.offset, toSign, sizeof(toSign), random, certificate->rsaPrivateKey, certificate->rsaModulus, rsaBits);
+			//rsassa_pkcs1_sign_sha256(handshakeResponse.bytes + handshakeResponse.offset, toSign, sizeof(toSign), certificate->rsaPrivateKey, certificate->rsaModulus, rsaBits);
+			handshakeResponse.offset += signatureLength;
+			handshakeResponse.patch_u16(signatureLengthPatchPos, handshakeResponse.offset - signatureLengthPatchPos - 2);
+			handshakeResponse.patch_u24(certificateVerifyPatchPos, handshakeResponse.offset - certificateVerifyPatchPos - 3);
+		}
+		transcriptHash.update(handshakeResponse.bytes + transcriptHashPos, handshakeResponse.offset - transcriptHashPos);
+		transcriptHashPos = handshakeResponse.offset;
+
+		handshakeResponse.write_u8(TLS_HANDSHAKE_TYPE_FINISHED);
+		U32 finishedPatchPos = handshakeResponse.write_u24(0);
+		// finished_key = HKDF-Expand-Label(BaseKey, "finished", "", Hash.length)
+		// verify_data = HMAC(finished_key, Transcript-Hash(Handshake Context, Certificate*, CertificateVerify*))
+		//struct {
+		//	opaque verify_data[Hash.length];
+		//} Finished;
+		Byte finishedKey[SHA256_HASH_SIZE];
+		sha256_hkdf_expand_label(finishedKey, sizeof(finishedKey), serverTrafficSecret, SHA256_HASH_SIZE, "finished", 8, "", 0);
+		Byte helloToNowHash[SHA256_HASH_SIZE];
+		tmpHash.copy_from(transcriptHash);
+		tmpHash.digest(helloToNowHash);
+		Byte verifyData[SHA256_HASH_SIZE];
+		sha256_hmac(verifyData, finishedKey, sizeof(finishedKey), helloToNowHash, sizeof(helloToNowHash));
+		handshakeResponse.write_bytes(verifyData, sizeof(verifyData));
+		handshakeResponse.patch_u24(finishedPatchPos, handshakeResponse.offset - finishedPatchPos - 3);
+		transcriptHash.update(handshakeResponse.bytes + transcriptHashPos, handshakeResponse.offset - transcriptHashPos);
+
+		handshakeResponse.write_u8(TLS_CONTENT_TYPE_HANDSHAKE); // real content type
+		handshakeResponse.patch_u16(recordLengthPatchPos, handshakeResponse.offset - recordLengthPatchPos - 2);
+		sendRecordDataEnd += handshakeResponse.offset;
+		encrypt_record(handshakeResponseOffset);
+
+
+		send_data();
+		if (tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+			// Send error occured
+			state = TLS_CONNECTION_STATE_CLOSED;
+			return;
+		}
+		state = TLS_SERVER_STATE_WAIT_FLIGHT2;
+		// No client auth
+		state = TLS_CONNECTION_STATE_WAIT_FINISHED;
 	}
 
-	void calc_application_keys() {
-		const u32 hashLength = SHA256_HASH_SIZE;
-		const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-		const u32 encryptionIVSize = AES_GCM_IV_SIZE;
+	void send_client_hello(StrA serverName, Keccak& random) {
+		TLS_DEBUG_LOG("SEND CLIENT_HELLO\n", 3);
 
-		u8 helloToServerFinishedHash[hashLength];
+		BigEndianByteBuf hello;
+		hello.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+
+		// Record header
+		hello.write_u8(TLS_CONTENT_TYPE_HANDSHAKE); // type
+		hello.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		U32 recordLengthPatchPos = hello.write_u16(0); // length
+
+		// Write a handshake client hello message
+		hello.write_u8(TLS_HANDSHAKE_TYPE_CLIENT_HELLO); // msg_type
+		U32 handshakeMessageLengthPatchPos = hello.write_u24(0); // length
+
+		//struct {
+		//	  ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
+		//	  Random random;
+		//	  opaque legacy_session_id<0..32>;
+		//	  CipherSuite cipher_suites<2..2^16-2>;
+		//	  opaque legacy_compression_methods<1..2^8-1>;
+		//    Extension extensions<8..2^16-1>;
+		//} ClientHello;
+		hello.write_u16(TLS_PROTOCOL_VERSION_1_2); // legacy_version
+		random.squeeze(hello.bytes + hello.offset, 32); // random
+		hello.offset += 32;
+		// Write a random 32 byte legacy_session_id
+		hello.write_u8(32);
+		random.squeeze(hello.bytes + hello.offset, 32);
+		hello.offset += 32;
+		// cipher_suites
+		U32 cipherSuitePatchPos = hello.write_u16(0);
+		hello.write_u16(TLS_AES_128_GCM_SHA256);
+		hello.patch_u16(cipherSuitePatchPos, hello.offset - cipherSuitePatchPos - 2);
+		// Write null for legacy_compression_methods
+		hello.write_u8(1);
+		hello.write_u8(0);
+
+		// Write extensions
+		U32 extensionsPatchPos = hello.write_u16(0);
+
+		//struct {
+		//	ExtensionType extension_type;
+		//	opaque extension_data<0..2^16-1>;
+		//} Extension;
+
+		if (serverName.str) {
+			hello.write_u16(TLS_EXTENSION_TYPE_SERVER_NAME);
+
+			U32 extensionPatchPos = hello.write_u16(0);
+			// RFC 6066 Section 3
+			//struct {
+			//  ServerName server_name_list<1..2^16-1>
+			//} ServerNameList;
+			U32 serverNameListPatchPos = hello.write_u16(0);
+			//struct {
+			//	NameType name_type;
+			//	select (name_type) {
+			//		case host_name: HostName;
+			//	} name;
+			//} ServerName;
+			//opaque HostName<1..2^16-1>;
+			hello.write_u8(TLS_NAME_TYPE_HOST_NAME); // name_type
+			hello.write_u16(serverName.length);
+			hello.write_bytes(serverName.str, serverName.length); // host_name
+
+			hello.patch_u16(serverNameListPatchPos, hello.offset - serverNameListPatchPos - 2);
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		{
+			// This extension tells the server that we're using TLS 1.3, not 1.2
+			hello.write_u16(TLS_EXTENSION_TYPE_SUPPORTED_VERSIONS);
+			U32 extensionPatchPos = hello.write_u16(0);
+			//struct {
+			//	select (Handshake.msg_type) {
+			//		case client_hello:
+			//			 ProtocolVersion versions<2..254>;
+			//
+			//		case server_hello: /* and HelloRetryRequest */
+			//			 ProtocolVersion selected_version;
+			//	};
+			//} SupportedVersions;
+			U32 versionsPatchPos = hello.write_u8(0);
+			hello.write_u16(TLS_PROTOCOL_VERSION_1_3);
+
+			hello.patch_u8(versionsPatchPos, hello.offset - versionsPatchPos - 1);
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		{
+			hello.write_u16(TLS_EXTENSION_TYPE_SUPPORTED_GROUPS);
+			U32 extensionPatchPos = hello.write_u16(0);
+			//struct {
+			//  NamedGroup named_group_list<2..2^16-1>;
+			//} NamedGroupList;
+			U32 namedGroupPatchPos = hello.write_u16(0);
+			hello.write_u16(TLS_NAMED_GROUP_SECP256R1);
+
+			hello.patch_u16(namedGroupPatchPos, hello.offset - namedGroupPatchPos - 2);
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		{
+			hello.write_u16(TLS_EXTENSION_TYPE_SIGNATURE_ALGORITHMS);
+			U32 extensionPatchPos = hello.write_u16(0);
+			//struct {
+			//	SignatureScheme supported_signature_algorithms<2..2^16-2>;
+			//} SignatureSchemeList;
+			U32 signatureAndHashAlgorithmsPatchPos = hello.write_u16(0);
+			hello.write_u16(TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA256);
+			hello.write_u16(TLS_SIGNATURE_SCHEME_RSA_PSS_RSAE_SHA256);
+			hello.write_u16(TLS_SIGNATURE_SCHEME_RSA_PSS_PSS_SHA256);
+			hello.write_u16(TLS_SIGNATURE_SCHEME_ECDSA_SECP256R1_SHA256);
+
+			hello.patch_u16(signatureAndHashAlgorithmsPatchPos, hello.offset - signatureAndHashAlgorithmsPatchPos - 2);
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		{
+			hello.write_u16(TLS_EXTENSION_TYPE_KEY_SHARE);
+			U32 extensionPatchPos = hello.write_u16(0);
+			//struct {
+			//	NamedGroup group;
+			//	opaque key_exchange<1..2^16-1>;
+			//} KeyShareEntry;
+			//struct {
+			//	KeyShareEntry client_shares<0..2^16-1>;
+			//} KeyShareClientHello;
+			U32 clientSharesPatchPos = hello.write_u16(0);
+			hello.write_u16(TLS_NAMED_GROUP_SECP256R1);
+			U32 keyExchangePatchPos = hello.write_u16(0);
+			// Write public key
+			// 4 means the key is not sent compressed
+			// I'm not figuring out how to write code to compress a key that is only 64 bytes long
+			hello.write_u8(4);
+			hello.write_bytes(diffieHellmanPublicKey, 32 + 32);
+			hello.patch_u16(keyExchangePatchPos, hello.offset - keyExchangePatchPos - 2);
+
+			hello.patch_u16(clientSharesPatchPos, hello.offset - clientSharesPatchPos - 2);
+			hello.patch_u16(extensionPatchPos, hello.offset - extensionPatchPos - 2);
+		}
+
+		hello.patch_u16(extensionsPatchPos, hello.offset - extensionsPatchPos - 2);
+		hello.patch_u24(handshakeMessageLengthPatchPos, hello.offset - handshakeMessageLengthPatchPos - 3);
+		hello.patch_u16(recordLengthPatchPos, hello.offset - recordLengthPatchPos - 2);
+
+		transcriptHash.update(hello.bytes + 5, hello.offset - 5);
+
+		sendRecordDataEnd += hello.offset;
+
+		send_data();
+		if (tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+			// Send error occured
+			state = TLS_CONNECTION_STATE_CLOSED;
+			return;
+		}
+		state = TLS_CLIENT_STATE_WAIT_SERVER_HELLO;
+	}
+
+	void send_client_change_cipher_spec_and_finished() {
+		TLS_DEBUG_LOG("SEND CHANGE_CIPHER_SPEC AND FINISHED\n", 3);
+		BigEndianByteBuf sendBuf;
+		sendBuf.wrap(sendRecord + sendRecordDataEnd, sizeof(sendRecord) - sendRecordDataEnd);
+
+		// Send change cipher spec (dummy byte of 0x01)
+		// Record header
+		sendBuf.write_u8(TLS_CONTENT_TYPE_CHANGE_CIPHER_SPEC); // type
+		sendBuf.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		sendBuf.write_u16(1); // length
+		sendBuf.write_u8(1);
+
+		// Send Finished
+		U32 finishedOffset = sendRecordDataEnd + sendBuf.offset;
+		// Record header
+		sendBuf.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA); // type
+		sendBuf.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+		U32 recordLengthPatchPos = sendBuf.write_u16(0); // length
+		//struct {
+		//	opaque content[TLSPlaintext.length];
+		//	ContentType type;
+		//	uint8 zeros[length_of_padding];
+		//} TLSInnerPlaintext;
+		sendBuf.write_u8(TLS_HANDSHAKE_TYPE_FINISHED);
+		sendBuf.write_u24(SHA256_HASH_SIZE);
+		//struct {
+		//	opaque verify_data[Hash.length];
+		//} Finished;
+
+		// Calculate verify data
+		Byte helloToServerFinishedHash[SHA256_HASH_SIZE];
 		SHA256 tmpHash;
-		tmpHash.copy_from(runningMessageHash);
+		tmpHash.copy_from(transcriptHash);
 		tmpHash.digest(helloToServerFinishedHash);
+		Byte finishedKey[SHA256_HASH_SIZE];
+		sha256_hkdf_expand_label(finishedKey, sizeof(finishedKey), clientTrafficSecret, SHA256_HASH_SIZE, "finished", 8, "", 0);
+		Byte verifyData[SHA256_HASH_SIZE];
+		sha256_hmac(verifyData, finishedKey, sizeof(finishedKey), helloToServerFinishedHash, SHA256_HASH_SIZE);
 
-		sha256_hkdf_expand_label(clientTrafficSecret, hashLength, masterSecret, hashLength, "c ap traffic", 12, helloToServerFinishedHash, hashLength);
-		sha256_hkdf_expand_label(clientKey, encryptionKeySize, clientTrafficSecret, hashLength, "key", 3, "", 0);
-		sha256_hkdf_expand_label(clientIV, encryptionIVSize, clientTrafficSecret, hashLength, "iv", 2, "", 0);
-		clientMessageDecryptCount = 0;
+		sendBuf.write_bytes(verifyData, sizeof(verifyData));
 
-		sha256_hkdf_expand_label(serverTrafficSecret, hashLength, masterSecret, hashLength, "s ap traffic", 12, helloToServerFinishedHash, hashLength);
-		sha256_hkdf_expand_label(serverKey, encryptionKeySize, serverTrafficSecret, hashLength, "key", 3, "", 0);
-		sha256_hkdf_expand_label(serverIV, encryptionIVSize, serverTrafficSecret, hashLength, "iv", 2, "", 0);
-		serverMessageEncryptCount = 0;
+		sendBuf.write_u8(TLS_CONTENT_TYPE_HANDSHAKE);
+		// No zero padding
+		sendBuf.patch_u16(recordLengthPatchPos, sendBuf.offset - recordLengthPatchPos - 2);
+
+		sendRecordDataEnd += sendBuf.offset;
+		encrypt_record(finishedOffset);
+
+		send_data();
+	}
+
+	void init(X509Certificate* cert) {
+		state = TLS_CONNECTION_STATE_CLOSED;
+		sendBufferPos = 0;
+		sendBufferDataEnd = 0;
+		receiveBufferUserReadPos = 0;
+		receiveBufferUserDataEnd = 0;
+		receiveBufferDataEnd = 0;
+		sendRecordPos = 0;
+		sendRecordDataEnd = 0;
+		currentRecordReceiveLength = 0;
+		certificate = cert;
+		tcpConnection = TCP_CONNECTION_BLOCK_INVALID_IDX;
+		certRSAModulusOrECDSAPointX.init(64);
+		certRSAPublicKeyOrECDSAPointY.init(64);
+		BigInteger::zero(certRSAModulusOrECDSAPointX);
+		BigInteger::zero(certRSAPublicKeyOrECDSAPointY);
+		encryptedMessageCounter = 0;
+		decryptedMessageCounter = 0;
+		shouldKeyUpdate = false;
+		shouldSendKeyUpdate = false;
+		sendQueueWritePos = 0;
+		sendQueueReadPos = 0;
+		transcriptHash.init();
+	}
+
+	B32 accept_connection_from_client(U32 client, X509Certificate* cert) {
+		TLS_DEBUG_LOG("ACCEPTING CLIENT\n", 3);
+		init(cert);
+		isServer = true;
+		tcpConnection = client;
+		Keccak random;
+		random.make_secure_random();
+		secp256r1_generate_keypair(random, diffieHellmanPublicKey, diffieHellmanPrivateKey);
+		state = TLS_CONNECTION_STATE_START;
+		receive_data();
+		return true;
+	}
+
+	B32 connect_to_server(StrA remoteServerName, U32 remoteIP, U16 remotePort, U16 localPort) {
+		init(nullptr);
+		isServer = false;
+
+		tcpConnection = g_syscallProc(SYSCALL_TCP_OPEN, U64(remoteIP) << TCP_OPEN_SYSCALL_ARG_REMOTE_IP_SHIFT | U64(remotePort) << TCP_OPEN_SYSCALL_ARG_REMOTE_PORT_SHIFT | U64(localPort) << TCP_OPEN_SYSCALL_ARG_LOCAL_PORT_SHIFT);
+		if (tcpConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
+			print("TCP open failed\n");
+			return false;
+		}
+
+		Keccak random;
+		random.make_secure_random();
+		secp256r1_generate_keypair(random, diffieHellmanPublicKey, diffieHellmanPrivateKey);
+		send_client_hello(remoteServerName, random);
+
+		state = TLS_CLIENT_STATE_WAIT_SERVER_HELLO;
+		return true;
+	}
+
+	B32 connect_to_server(StrA remoteServerName, U16 remotePort, U16 localPort) {
+		SyscallDNSLookupArgs dnsLookupArgs;
+		if (remoteServerName.length > ARRAY_COUNT(dnsLookupArgs.name)) {
+			return false;
+		}
+		dnsLookupArgs.alwaysZero = 0;
+		memcpy(dnsLookupArgs.name, remoteServerName.str, remoteServerName.length);
+		if (remoteServerName.length < ARRAY_COUNT(dnsLookupArgs.name)) {
+			dnsLookupArgs.name[remoteServerName.length] = 0;
+		}
+		TLS_DEBUG_LOG("ATTEMPTING CONNECTION TO: ", 2);
+		TLS_DEBUG_LOG(dnsLookupArgs.name, 2);
+		TLS_DEBUG_LOG("\n", 2);
+		U64 lookupResult = g_syscallProc(SYSCALL_DNS_LOOKUP_BLOCKING, U64(&dnsLookupArgs));
+		U32 ip = lookupResult & DNS_LOOKUP_SYSCALL_RESULT_IP_MASK;
+		U32 dnsLookupResultCode = lookupResult >> DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_SHIFT & DNS_LOOKUP_SYSCALL_RESULT_RESULT_CODE_MASK;
+		U32 ttlMillis = lookupResult >> DNS_LOOKUP_SYSCALL_RESULT_TTL_SHIFT;
+		if (dnsLookupResultCode != DNS_LOOKUP_RESULT_SUCCESS) {
+			print("DNS lookup failed\n");
+			print_num(lookupResult);
+			return false;
+		}
+		return connect_to_server(remoteServerName, ip, remotePort, localPort);
+	}
+
+	// RFC 8446 Appendix A.1 (client state machine)
+	//                            START <----+
+	//            Send ClientHello |        | Recv HelloRetryRequest
+	//       [K_send = early data] |        |
+	//                             v        |
+	//        /                 WAIT_SH ----+
+	//        |                    | Recv ServerHello
+	//        |                    | K_recv = handshake
+	//    Can |                    V
+	//   send |                 WAIT_EE
+	//  early |                    | Recv EncryptedExtensions
+	//   data |           +--------+--------+
+	//        |     Using |                 | Using certificate
+	//        |       PSK |                 v
+	//        |           |            WAIT_CERT_CR
+	//        |           |        Recv |       | Recv CertificateRequest
+	//        |           | Certificate |       v
+	//        |           |             |    WAIT_CERT
+	//        |           |             |       | Recv Certificate
+	//        |           |             v       v
+	//        |           |              WAIT_CV
+	//        |           |                 | Recv CertificateVerify
+	//        |           +> WAIT_FINISHED <+
+	//        |                  | Recv Finished
+	//        \                  | [Send EndOfEarlyData]
+	//                           | K_send = handshake
+	//                           | [Send Certificate [+ CertificateVerify]]
+	// Can send                  | Send Finished
+	// app data   -->            | K_send = K_recv = application
+	// after here                v
+	//                       CONNECTED
+	//
+	// 
+	// 
+	// RFC 8446 Appendix A.2 (server state machine)
+	//                              START <-----+
+	//	             Recv ClientHello |         | Send HelloRetryRequest
+	//								  v         |
+	//							   RECVD_CH ----+
+	//								  | Select parameters
+	//								  v
+	//							   NEGOTIATED
+	//								  | Send ServerHello
+	//								  | K_send = handshake
+	//								  | Send EncryptedExtensions
+	//								  | [Send CertificateRequest]
+	// Can send                       | [Send Certificate + CertificateVerify]
+	// app data                       | Send Finished
+	// after   -->                    | K_send = application
+	// here                  +--------+--------+
+	//			    No 0-RTT |                 | 0-RTT
+	//					     |                 |
+	//   K_recv = handshake  |                 | K_recv = early data
+	// [Skip decrypt errors] |    +------> WAIT_EOED -+
+	//					     |    |       Recv |      | Recv EndOfEarlyData
+	//					     |    | early data |      | K_recv = handshake
+	//					     |    +------------+      |
+	//					     |                        |
+	//					     +> WAIT_FLIGHT2 <--------+
+	//								|
+	//					   +--------+--------+
+	//			   No auth |                 | Client auth
+	//					   |                 |
+	//					   |                 v
+	//					   |             WAIT_CERT
+	//					   |        Recv |       | Recv Certificate
+	//					   |       empty |       v
+	//					   | Certificate |    WAIT_CV
+	//					   |             |       | Recv
+	//					   |             v       | CertificateVerify
+	//					   +-> WAIT_FINISHED <---+
+	//								| Recv Finished
+	//								| K_recv = application
+	//								v
+	//							CONNECTED
+	void process_handshake_messages(BigEndianByteBuf& handshakeMessages) {
+		while (handshakeMessages.offset != handshakeMessages.capacity) {
+			TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(handshakeMessages.read_u8());
+			U32 handshakeMessageDataLength = handshakeMessages.read_u24();
+			TLS_VERIFY_ALERT_RETURN(handshakeMessages.has_data_left(handshakeMessageDataLength), DECODE_ERROR);
+			U32 handshakeMessagesCapacity = handshakeMessages.capacity;
+			handshakeMessages.capacity = handshakeMessages.offset + handshakeMessageDataLength;
+			switch (state) {
+			case TLS_CLIENT_STATE_WAIT_ENCRYPTED_EXTENSIONS: {
+				TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_ENCRYPTED_EXTENSIONS, DECODE_ERROR); 
+				TLS_DEBUG_LOG("  RECEIVE ENCRYPTED_EXTENSIONS\n", 3);
+				//struct {
+				//	Extension extensions<0..2^16-1>;
+				//} EncryptedExtensions;
+				U16 encryptedExtensionsEnd = handshakeMessages.read_u16();
+				encryptedExtensionsEnd += handshakeMessages.offset;
+				while (!handshakeMessages.failed && handshakeMessages.offset < encryptedExtensionsEnd) {
+					//struct {
+					//	ExtensionType extension_type;
+					//	opaque extension_data<0..2^16-1>;
+					//} Extension;
+					TLSExtensionType extensionType = static_cast<TLSExtensionType>(handshakeMessages.read_u16());
+					U16 extensionLength = handshakeMessages.read_u16();
+					handshakeMessages.skip_bytes(extensionLength);
+				}
+
+				state = TLS_CLIENT_STATE_WAIT_CERTIFICATE_CERTIFICATE_REQUEST;
+			} break;
+			case TLS_CLIENT_STATE_WAIT_CERTIFICATE_CERTIFICATE_REQUEST: {
+				if (handshakeType == TLS_HANDSHAKE_TYPE_CERTIFICATE_REQUEST) {
+					TLS_DEBUG_LOG("  RECEIVE CERTIFICATE_REQUEST\n", 3);
+					// We don't have a certificate, so ignore this message
+					handshakeMessages.skip_bytes(handshakeMessageDataLength);
+					state = TLS_CONNECTION_STATE_WAIT_CERTIFICATE;
+					break;
+				}
+				TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_CERTIFICATE, UNEXPECTED_MESSAGE);
+				state = TLS_CONNECTION_STATE_WAIT_CERTIFICATE;
+			} [[fallthrough]]
+			case TLS_CONNECTION_STATE_WAIT_CERTIFICATE: {
+				TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_CERTIFICATE, UNEXPECTED_MESSAGE);
+				TLS_DEBUG_LOG("  RECEIVE CERTIFICATE\n", 3);
+				//struct {
+				//	opaque certificate_request_context<0..2^8-1>;
+				//	CertificateEntry certificate_list<0..2^24-1>;
+				//} Certificate;
+				U8 contextLength = handshakeMessages.read_u8();
+				// This is a server certificate, so the length must be 0
+				TLS_VERIFY_ALERT_RETURN(contextLength == 0, ILLEGAL_PARAMETER);
+				handshakeMessages.skip_bytes(contextLength);
+
+				U32 certificatesEnd = handshakeMessages.read_u24();
+				certificatesEnd += handshakeMessages.offset;
+				TLS_VERIFY_ALERT_RETURN(certificatesEnd <= handshakeMessages.capacity, DECODE_ERROR);
+				while (!handshakeMessages.failed && handshakeMessages.offset < certificatesEnd) {
+					//struct {
+					//	select (certificate_type) {
+					//		case RawPublicKey:
+					//			/* From RFC 7250 ASN.1_subjectPublicKeyInfo */
+					//			opaque ASN1_subjectPublicKeyInfo<1..2^24-1>;
+					//
+					//		case X509:
+					//			opaque cert_data<1..2^24-1>;
+					//	};
+					//	Extension extensions<0..2^16-1>;
+					//} CertificateEntry;
+					// We should always be X509, since we didn't negotiate RawPublicKey
+					U32 certificateLength = handshakeMessages.read_u24();
+					TLS_VERIFY_ALERT_RETURN(handshakeMessages.offset + certificateLength <= certificatesEnd, DECODE_ERROR);
+					void* cert = handshakeMessages.bytes + handshakeMessages.offset;
+					X509SignatureAlgorithm certSignatureAlgorithm;
+					void* publicKey = nullptr;
+					U32 publicKeyLength = 0;
+					X509Error certParseError = parse_asn1_der_cert2(&certSignatureAlgorithm, &publicKey, &publicKeyLength, cert, certificateLength);
+					TLS_VERIFY_ALERT_RETURN(certParseError != X509_ERROR_PARSE_FAILED && certParseError != X509_ERROR_WRONG_VERSION, BAD_CERTIFICATE);
+					// Don't actually do anything with the extracted key, since we don't support all algorithms and we're not verifying against a CA anyway
+					handshakeMessages.skip_bytes(certificateLength);
+
+					// Skip extensions
+					U16 extensionsLength = handshakeMessages.read_u16();
+					handshakeMessages.skip_bytes(extensionsLength);
+				}
+				TLS_VERIFY_ALERT_RETURN(handshakeMessages.offset == certificatesEnd, DECODE_ERROR);
+				state = TLS_CONNECTION_STATE_WAIT_CERTIFICATE_VERIFY;
+			} break;
+			case TLS_CONNECTION_STATE_WAIT_CERTIFICATE_VERIFY: {
+				TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_CERTIFICATE_VERIFY, UNEXPECTED_MESSAGE);
+				TLS_DEBUG_LOG("  RECEIVE CERTIFICATE_VERIFY\n", 3);
+				//struct {
+				//	SignatureScheme algorithm;
+				//	opaque signature<0..2^16-1>;
+				//} CertificateVerify;
+
+				// We're not actually verifying against a CA, so we can just skip this
+				TLSSignatureScheme signatureScheme = static_cast<TLSSignatureScheme>(handshakeMessages.read_u16());
+				U16 signatureDataLength = handshakeMessages.read_u16();
+				handshakeMessages.skip_bytes(signatureDataLength);
+
+				state = TLS_CONNECTION_STATE_WAIT_FINISHED;
+			} break;
+			case TLS_CONNECTION_STATE_WAIT_FINISHED: {
+				TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_FINISHED, UNEXPECTED_MESSAGE);
+				TLS_DEBUG_LOG("  RECEIVE FINISHED\n", 3);
+				SHA256 tmpHash;
+				// finished_key = HKDF-Expand-Label(BaseKey, "finished", "", Hash.length)
+				// verify_data = HMAC(finished_key, Transcript-Hash(Handshake Context, Certificate*, CertificateVerify*))
+				// * Only included if present.
+				// BaseKey is server_handshake_traffic_secret if server, client_handshake_traffic_secret if client,
+				// and client_application_traffic_secret_n if post handshake
+				// 
+				//struct {
+				//	opaque verify_data[Hash.length];
+				//} Finished;
+				Byte remoteHandshakeVerify[SHA256_HASH_SIZE];
+				handshakeMessages.read_bytes(remoteHandshakeVerify, sizeof(remoteHandshakeVerify));
+
+				Byte transcriptHashForFinishedVerify[SHA256_HASH_SIZE];
+				tmpHash.copy_from(transcriptHash);
+				tmpHash.digest(transcriptHashForFinishedVerify);
+
+				Byte finishedKey[SHA256_HASH_SIZE];
+				sha256_hkdf_expand_label(finishedKey, sizeof(finishedKey), isServer ? clientTrafficSecret : serverTrafficSecret, SHA256_HASH_SIZE, "finished", 8, "", 0);
+				Byte localHandshakeVerify[SHA256_HASH_SIZE];
+				sha256_hmac(localHandshakeVerify, finishedKey, sizeof(finishedKey), transcriptHashForFinishedVerify, sizeof(transcriptHashForFinishedVerify));
+
+				TLS_VERIFY_ALERT_RETURN(memcmp(remoteHandshakeVerify, localHandshakeVerify, SHA256_HASH_SIZE) == 0, DECRYPT_ERROR);
+
+				TLS_VERIFY_ALERT_RETURN(!handshakeMessages.failed && handshakeMessages.offset == handshakeMessages.capacity, DECODE_ERROR);
+
+				if (!isServer) {
+					// If we're the client, add the server finished to the hash and send our finished
+					// If we're the server, we already sent a finished and added it to the hash, and we don't need to add the client finished to the hash
+					U32 dataToBeHashedLength = handshakeMessageDataLength + 4; // hash includes the handshake message header
+					transcriptHash.update(handshakeMessages.bytes + handshakeMessages.offset - dataToBeHashedLength, dataToBeHashedLength);
+					send_client_change_cipher_spec_and_finished();
+				}
+
+				// Application key calc
+				const U32 hashLength = SHA256_HASH_SIZE;
+				const U32 keyLength = AES_KEY_SIZE_BYTES;
+				const U32 ivLength = AES_GCM_IV_SIZE;
+
+				Byte helloToServerFinishedHash[hashLength];
+				if (isServer) {
+					memcpy(helloToServerFinishedHash, transcriptHashForFinishedVerify, SHA256_HASH_SIZE);
+				} else {
+					tmpHash.copy_from(transcriptHash);
+					tmpHash.digest(helloToServerFinishedHash);
+				}
+
+				sha256_hkdf_expand_label(serverTrafficSecret, hashLength, masterSecret, hashLength, "s ap traffic", 12, helloToServerFinishedHash, hashLength);
+				sha256_hkdf_expand_label(serverKey, keyLength, serverTrafficSecret, hashLength, "key", 3, "", 0);
+				sha256_hkdf_expand_label(serverIV, ivLength, serverTrafficSecret, hashLength, "iv", 2, "", 0);
+				sha256_hkdf_expand_label(clientTrafficSecret, hashLength, masterSecret, hashLength, "c ap traffic", 12, helloToServerFinishedHash, hashLength);
+				sha256_hkdf_expand_label(clientKey, keyLength, clientTrafficSecret, hashLength, "key", 3, "", 0);
+				sha256_hkdf_expand_label(clientIV, ivLength, clientTrafficSecret, hashLength, "iv", 2, "", 0);
+
+				encryptedMessageCounter = 0;
+				decryptedMessageCounter = 0;
+
+				state = TLS_CONNECTION_STATE_CONNECTED;
+				return;
+			} break;
+			default: {
+				// Should never get here
+				error_alert(TLS_ALERT_INTERNAL_ERROR);
+				return;
+			}
+			}
+			TLS_VERIFY_ALERT_RETURN(handshakeMessages.offset == handshakeMessages.capacity, DECODE_ERROR);
+			handshakeMessages.capacity = handshakeMessagesCapacity;
+			TLS_VERIFY_ALERT_RETURN(!handshakeMessages.failed, DECODE_ERROR);
+			U32 dataToBeHashedLength = handshakeMessageDataLength + 4; // hash includes the handshake message header
+			transcriptHash.update(handshakeMessages.bytes + handshakeMessages.offset - dataToBeHashedLength, dataToBeHashedLength);
+		}
+	}
+	void process_received_record() {
+		TLS_DEBUG_LOG("RECORD RECEIVED\n", 3);
+		currentRecordReceiveLength = 0;
+		if (state != TLS_CLIENT_STATE_WAIT_SERVER_HELLO && state != TLS_CONNECTION_STATE_START && currentReceiveHeader.contentType != TLS_CONTENT_TYPE_ALERT) {
+			// Make sure to ignore the legacy_record_version field in TLSPlaintext, only validate in TLSCiphertext
+			TLS_VERIFY_ALERT_RETURN(bswap16(currentReceiveHeader.protocolVersion) == TLS_PROTOCOL_VERSION_1_2, UNEXPECTED_MESSAGE);
+		}
+
+		U32 recordLength = bswap16(currentReceiveHeader.length);
+
+		BigEndianByteBuf record;
+		record.wrap(receiveBuffer + receiveBufferDataEnd - recordLength, recordLength);
+
+		if (currentReceiveHeader.contentType == TLS_CONTENT_TYPE_ALERT) {
+			TLS_DEBUG_LOG("  RECEIVED ALERT\n", 1);
+			close_no_alert();
+			TLSAlertLevel level = static_cast<TLSAlertLevel>(record.read_u8());
+			TLSAlertDescription description = static_cast<TLSAlertDescription>(record.read_u8());
+			if (!record.failed) {
+				TLS_DEBUG_LOG_NUM(U32(level), 1);
+				TLS_DEBUG_LOG(", Description ", 1);
+				TLS_DEBUG_LOG_NUM(U32(description), 1);
+				TLS_DEBUG_LOG("\n", 1);
+			} else {
+				TLS_DEBUG_LOG("Alert malformed\n", 1);
+			}
+			return;
+		}
+
+		if (currentReceiveHeader.contentType == TLS_CONTENT_TYPE_CHANGE_CIPHER_SPEC) {
+			// Change cipher spec can't be sent after the handshake is finished
+			TLS_VERIFY_ALERT_RETURN(state != TLS_CONNECTION_STATE_CONNECTED, UNEXPECTED_MESSAGE);
+			// Change cipher spec should contain exactly one byte: 0x01
+			TLS_VERIFY_ALERT_RETURN(recordLength == 1, DECODE_ERROR);
+			U8 changeCipherSpecDummyByte = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(changeCipherSpecDummyByte == 1, ILLEGAL_PARAMETER);
+			receiveBufferDataEnd -= record.capacity;
+			if (receiveBufferUserReadPos == receiveBufferDataEnd) {
+				receiveBufferUserReadPos = receiveBufferUserDataEnd = receiveBufferDataEnd = 0;
+			}
+			return;
+		}
+
+		switch (state) {
+		case TLS_CONNECTION_STATE_CLOSED: {
+			// Should never be here
+			error_alert(TLS_ALERT_UNEXPECTED_MESSAGE);
+			return;
+		} break;
+		case TLS_CONNECTION_STATE_START: {
+			// Receiving a message as a client wouldn't make sense here, since the client always sends the first message.
+			TLS_VERIFY_ALERT_RETURN(isServer, UNEXPECTED_MESSAGE);
+			TLS_VERIFY_ALERT_RETURN(currentReceiveHeader.contentType == TLS_CONTENT_TYPE_HANDSHAKE, UNEXPECTED_MESSAGE);
+			TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(record.read_u8());
+			TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_CLIENT_HELLO, UNEXPECTED_MESSAGE);
+			TLS_DEBUG_LOG("  RECEIVED CLIENT_HELLO\n", 3);
+			U32 length = record.read_u24();
+			// Handling hello messages with more than 16kb would be annoying, and I don't feel like doing it
+			TLS_VERIFY_ALERT_RETURN(length <= record.capacity - record.offset, RECORD_OVERFLOW);
+
+			//uint16 ProtocolVersion;
+			//opaque Random[32];
+			//
+			//uint8 CipherSuite[2];    /* Cryptographic suite selector */
+			//
+			//struct {
+			//	ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
+			//	Random random;
+			//	opaque legacy_session_id<0..32>;
+			//	CipherSuite cipher_suites<2..2^16-2>;
+			//	opaque legacy_compression_methods<1..2^8-1>;
+			//	Extension extensions<8..2^16-1>;
+			//} ClientHello;
+			U16 legacyVersion = record.read_u16();
+			TLS_VERIFY_ALERT_RETURN(legacyVersion == TLS_PROTOCOL_VERSION_1_2, ILLEGAL_PARAMETER);
+			record.skip_bytes(32); // random
+			U32 legacySessionIdLength = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(legacySessionIdLength <= 32u, ILLEGAL_PARAMETER);
+			Byte* legacySessionId = record.bytes + record.offset;
+			record.skip_bytes(legacySessionIdLength);
+			U32 cipherSuitesLength = record.read_u16();
+			TLS_VERIFY_ALERT_RETURN(cipherSuitesLength >= 2, ILLEGAL_PARAMETER);
+			TLS_VERIFY_ALERT_RETURN(record.has_data_left(cipherSuitesLength), DECODE_ERROR);
+			U32 cipherSuitesEnd = cipherSuitesLength + record.offset;
+			TLSCipherSuite chosenCipherSuite;
+			while (record.offset < cipherSuitesEnd) {
+				TLSCipherSuite cipherSuite = static_cast<TLSCipherSuite>(record.read_u16());
+				if (cipherSuite == TLS_AES_128_GCM_SHA256) {
+					chosenCipherSuite = cipherSuite;
+					goto foundCipherSuite;
+				}
+			}
+			error_alert(TLS_ALERT_HANDSHAKE_FAILURE);
+			return;
+		foundCipherSuite:;
+			record.offset = cipherSuitesEnd;
+			U8 legacyCompressionMethodsLength = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(legacyCompressionMethodsLength == 1, ILLEGAL_PARAMETER);
+			U8 legacyCompressionFormat = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(legacyCompressionFormat == 0, ILLEGAL_PARAMETER);
+			U32 extensionsLength = record.read_u16();
+			TLS_VERIFY_ALERT_RETURN(extensionsLength >= 8u, ILLEGAL_PARAMETER);
+			TLS_VERIFY_ALERT_RETURN(record.has_data_left(extensionsLength), DECODE_ERROR);
+			U32 extensionsEnd = record.offset + extensionsLength;
+			U32 extensionsOldCapacity = record.capacity;
+			record.capacity = extensionsEnd;
+
+			// The x and y curve position numbers for SECP256R1
+			Byte clientPublicKey[32 + 32];
+			B32 hasTLS13 = false;
+			B32 hasCorrectKeyShare = false;
+			B32 hasASupportedGroup = false;
+			B32 hasASupportedSignatureAlgorithm = false;
+			B32 hasSignatureAlgorithmsExtension = false;
+			B32 hasSupportedGroupsExtension = false;
+			B32 hasKeyShareExtension = false;
+			while (!record.failed && record.offset < extensionsEnd) {
+				//struct {
+				//	ExtensionType extension_type;
+				//	opaque extension_data<0..2^16-1>;
+				//} Extension;
+				TLSExtensionType extensionType = static_cast<TLSExtensionType>(record.read_u16());
+				U16 extensionDataLength = record.read_u16();
+				TLS_VERIFY_ALERT_RETURN(record.has_data_left(extensionDataLength), DECODE_ERROR);
+				record.capacity = record.offset + extensionDataLength;
+				switch (extensionType) {
+				case TLS_EXTENSION_TYPE_SUPPORTED_VERSIONS: {
+					TLS_DEBUG_LOG("    EXTENSION: SUPPORTED_VERSIONS\n", 3);
+					//struct {
+					//  select (Handshake.msg_type) {
+					//	  case client_hello:
+					//		   ProtocolVersion versions<2..254>;
+					//
+					//	  case server_hello: /* and HelloRetryRequest */
+					//		   ProtocolVersion selected_version;
+					//  };
+					//} SupportedVersions;
+					U32 protocolVersionsLength = record.read_u8();
+					TLS_VERIFY_ALERT_RETURN(record.has_data_left(protocolVersionsLength), DECODE_ERROR);
+					TLS_VERIFY_ALERT_RETURN(protocolVersionsLength >= 2u && (protocolVersionsLength & 1) == 0, ILLEGAL_PARAMETER);
+					while (!record.failed && protocolVersionsLength) {
+						U16 protocolVersion = record.read_u16();
+						hasTLS13 |= protocolVersion == TLS_PROTOCOL_VERSION_1_3;
+						protocolVersionsLength -= 2;
+					}
+				} break;
+				case TLS_EXTENSION_TYPE_KEY_SHARE: {
+					TLS_DEBUG_LOG("    EXTENSION: KEY_SHARE\n", 3);
+					hasKeyShareExtension = true;
+					//struct {
+					// NamedGroup group;
+					// opaque key_exchange<1..2^16-1>;
+					//} KeyShareEntry;
+					//struct {
+					//	KeyShareEntry client_shares<0..2^16-1>;
+					//} KeyShareClientHello;
+					U32 keySharesLength = record.read_u16();
+					TLS_VERIFY_ALERT_RETURN(record.offset + keySharesLength == record.capacity, DECODE_ERROR);
+					while (!record.failed && record.offset < record.capacity) {
+						TLSNamedGroup group = static_cast<TLSNamedGroup>(record.read_u16());
+						U32 keyLength = record.read_u16();
+						if (group == TLS_NAMED_GROUP_SECP256R1) {
+							// 1 byte for compression, and two 32 byte integers for the key
+							TLS_VERIFY_ALERT_RETURN(keyLength == 1 + 32 + 32, ILLEGAL_PARAMETER);
+							U8 compression = record.read_u8();
+							// Don't accept compressed keys
+							TLS_VERIFY_ALERT_RETURN(compression == 4, ILLEGAL_PARAMETER);
+							record.read_bytes(clientPublicKey, keyLength - 1);
+							hasCorrectKeyShare = true;
+							hasASupportedGroup = true;
+						} else {
+							record.skip_bytes(keyLength);
+						}
+					}
+				} break;
+				case TLS_EXTENSION_TYPE_SUPPORTED_GROUPS: {
+					TLS_DEBUG_LOG("    EXTENSION: SUPPORTED_GROUPS\n", 3);
+					hasSupportedGroupsExtension = true;
+					//struct {
+					//	NamedGroup named_group_list<2..2^16-1>;
+					//} NamedGroupList;
+					U32 namedGroupsLength = record.read_u16();
+					TLS_VERIFY_ALERT_RETURN(record.offset + namedGroupsLength == record.capacity, DECODE_ERROR);
+					while (!record.failed && record.offset < record.capacity) {
+						TLSNamedGroup group = static_cast<TLSNamedGroup>(record.read_u16());
+						hasASupportedGroup |= group == TLS_NAMED_GROUP_SECP256R1;
+					}
+				} break;
+				case TLS_EXTENSION_TYPE_SIGNATURE_ALGORITHMS: {
+					TLS_DEBUG_LOG("    EXTENSION: SIGNATURE_ALGORITHMS\n", 3);
+					hasSignatureAlgorithmsExtension = true;
+					//struct {
+					//	SignatureScheme supported_signature_algorithms<2..2^16-2>;
+					//} SignatureSchemeList;
+					U32 supportedSignatureAlgorithmsLength = record.read_u16();
+					TLS_VERIFY_ALERT_RETURN(supportedSignatureAlgorithmsLength >= 2u, ILLEGAL_PARAMETER);
+					TLS_VERIFY_ALERT_RETURN(record.offset + supportedSignatureAlgorithmsLength == record.capacity, DECODE_ERROR);
+					while (!record.failed && record.offset < record.capacity) {
+						TLSSignatureScheme signatureScheme = static_cast<TLSSignatureScheme>(record.read_u16());
+						hasASupportedSignatureAlgorithm |= signatureScheme == TLS_SIGNATURE_SCHEME_RSA_PKCS1_SHA256;
+					}
+				} break;
+				case TLS_EXTENSION_TYPE_SIGNATURE_ALGORITHMS_CERT: {
+					TLS_DEBUG_LOG("    EXTENSION: SIGNATURE_ALGORITHMS_CERT\n", 3);
+					// I'm just going to ignore this one.
+					// I only have one certificate, so it's not like anything meaningful would change from parsing this
+					record.skip_bytes(extensionDataLength);
+				} break;
+				default: {
+					record.skip_bytes(extensionDataLength);
+				} break;
+				}
+				TLS_VERIFY_ALERT_RETURN(!record.failed && record.offset == record.capacity, DECODE_ERROR);
+				record.capacity = extensionsEnd;
+			}
+			TLS_VERIFY_ALERT_RETURN(!record.failed, DECODE_ERROR);
+			TLS_VERIFY_ALERT_RETURN(record.offset == record.capacity, DECODE_ERROR);
+			record.capacity = extensionsOldCapacity;
+			TLS_VERIFY_ALERT_RETURN(hasTLS13, PROTOCOL_VERSION);
+			TLS_VERIFY_ALERT_RETURN(hasASupportedGroup && hasASupportedSignatureAlgorithm, HANDSHAKE_FAILURE);
+			TLS_VERIFY_ALERT_RETURN(hasSignatureAlgorithmsExtension && hasKeyShareExtension && hasSupportedGroupsExtension, MISSING_EXTENSION);
+			transcriptHash.update(receiveBuffer + receiveBufferDataEnd - recordLength, recordLength);
+			if (hasCorrectKeyShare) {
+				send_server_response_to_hello(SERVER_RESPONSE_NORMAL, legacySessionId, legacySessionIdLength, chosenCipherSuite, clientPublicKey);
+			} else {
+				send_server_response_to_hello(SERVER_RESPONSE_RETRY_REQUEST, legacySessionId, legacySessionIdLength, chosenCipherSuite, nullptr);
+			}
+		} break;
+		case TLS_CLIENT_STATE_WAIT_SERVER_HELLO: {
+			// While technically a handshake message, this isn't processed with the rest of them
+			// since server hello must always be on a record boundary due to the key change immediately after
+			TLS_VERIFY_ALERT_RETURN(currentReceiveHeader.contentType == TLS_CONTENT_TYPE_HANDSHAKE, UNEXPECTED_MESSAGE);
+			TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(record.read_u8());
+			TLS_VERIFY_ALERT_RETURN(handshakeType == TLS_HANDSHAKE_TYPE_SERVER_HELLO, UNEXPECTED_MESSAGE);
+			TLS_DEBUG_LOG("  RECEIVED SERVER_HELLO\n", 3);
+			U32 length = record.read_u24();
+			// Handling hello messages with more than 16kb would be annoying, and I don't feel like doing it
+			TLS_VERIFY_ALERT_RETURN(length <= record.capacity - record.offset, RECORD_OVERFLOW);
+
+			//struct {
+			//	ProtocolVersion legacy_version = 0x0303;    /* TLS v1.2 */
+			//	Random random;
+			//	opaque legacy_session_id_echo<0..32>;
+			//	CipherSuite cipher_suite;
+			//	uint8 legacy_compression_method = 0;
+			//	Extension extensions<6..2^16-1>;
+			//} ServerHello;
+
+			// Check enough data left for necessary ServerHello data
+			TLS_VERIFY_ALERT_RETURN(record.has_data_left(2 + 32 + 1 + 32 + 2 + 1 + 2), DECODE_ERROR);
+
+			U16 legacyVersion = record.read_u16();
+			TLS_VERIFY_ALERT_RETURN(legacyVersion == TLS_PROTOCOL_VERSION_1_2, ILLEGAL_PARAMETER);
+			// random field
+			if (memcmp(record.bytes + record.offset, tlsHelloRetryRequestMagic, sizeof(tlsHelloRetryRequestMagic)) == 0) {
+				TLS_DEBUG_LOG("SERVER HELLO WAS RETRY_REQUEST\n", 3);
+				U8 clientHello1HashData[4 + SHA256_HASH_SIZE];
+				clientHello1HashData[0] = TLS_HANDSHAKE_TYPE_MESSAGE_HASH;
+				clientHello1HashData[1] = 0;
+				clientHello1HashData[2] = 0;
+				clientHello1HashData[3] = SHA256_HASH_SIZE;
+				transcriptHash.digest(clientHello1HashData + 4);
+				transcriptHash.init();
+				transcriptHash.update(clientHello1HashData, sizeof(clientHello1HashData));
+				// This is a HelloRetryRequest, nothing would change since we only support one key type
+				error_alert(TLS_ALERT_ILLEGAL_PARAMETER);
+				return;
+			}
+			if (memcmp(record.bytes + record.offset + 24, tlsTLS12NegotiationMagic, sizeof(tlsTLS12NegotiationMagic)) == 0 ||
+				memcmp(record.bytes + record.offset + 24, tlsTLS11NegotiationMagic, sizeof(tlsTLS11NegotiationMagic)) == 0) {
+				TLS_DEBUG_LOG("SERVER HELLO WAS TLS 1.2 OR TLS 1.1\n", 3);
+				// Don't support TLS 1.1 or 1.2
+				error_alert(TLS_ALERT_ILLEGAL_PARAMETER);
+				return;
+			}
+			record.skip_bytes(32); // skip over random
+			U8 legacySessionIdEchoLength = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(legacySessionIdEchoLength == 32, ILLEGAL_PARAMETER);
+			record.offset += legacySessionIdEchoLength;
+			TLSCipherSuite cipherSuite = static_cast<TLSCipherSuite>(record.read_u16());
+			TLS_VERIFY_ALERT_RETURN(cipherSuite == TLS_AES_128_GCM_SHA256, HANDSHAKE_FAILURE);
+			U8 legacyCompressionMethod = record.read_u8();
+			TLS_VERIFY_ALERT_RETURN(legacyCompressionMethod == 0, ILLEGAL_PARAMETER);
+
+			//struct {
+			//	ExtensionType extension_type;
+			//	opaque extension_data<0..2^16-1>;
+			//} Extension;
+			U16 extensionsLength = record.read_u16();
+			TLS_VERIFY_ALERT_RETURN(record.has_data_left(extensionsLength), DECODE_ERROR);
+
+			// The x and y curve position numbers for SECP256R1
+			Byte serverPublicKey[32 + 32];
+			B32 hasTLS13 = false;
+			B32 hasKeyShare = false;
+
+			BigEndianByteBuf extensions;
+			extensions.wrap(record.bytes + record.offset, extensionsLength);
+			while (extensions.has_data_left(sizeof(TLSExtensionType) + sizeof(U16))) {
+				TLSExtensionType extensionType = static_cast<TLSExtensionType>(extensions.read_u16());
+				U16 extensionDataLength = extensions.read_u16();
+				TLS_VERIFY_ALERT_RETURN(extensions.has_data_left(extensionDataLength), DECODE_ERROR);
+				U32 extensionsCapacity = extensions.capacity;
+				extensions.capacity = extensions.offset + extensionDataLength;
+
+				switch (extensionType) {
+				case TLS_EXTENSION_TYPE_SUPPORTED_VERSIONS: {
+					TLS_DEBUG_LOG("    EXTENSION: SUPPORTED_VERSIONS\n", 3);
+					//struct {
+					//  select (Handshake.msg_type) {
+					//	  case client_hello:
+					//		   ProtocolVersion versions<2..254>;
+					//
+					//	  case server_hello: /* and HelloRetryRequest */
+					//		   ProtocolVersion selected_version;
+					//  };
+					//} SupportedVersions;
+					TLS_VERIFY_ALERT_RETURN(extensionDataLength == 2, DECODE_ERROR);
+					U16 protocolVersion = extensions.read_u16();
+					if (protocolVersion == TLS_PROTOCOL_VERSION_1_3) {
+						TLS_DEBUG_LOG("    SUPPORTS TLS 1.3\n", 3);
+						hasTLS13 = true;
+					}
+				} break;
+				case TLS_EXTENSION_TYPE_KEY_SHARE: {
+					TLS_DEBUG_LOG("    EXTENSION: KEY_SHARE\n", 3);
+					//struct {
+					// NamedGroup group;
+					// opaque key_exchange<1..2^16-1>;
+					//} KeyShareEntry;
+					//struct {
+					//  KeyShareEntry server_share;
+					//} KeyShareServerHello;
+					TLSNamedGroup group = static_cast<TLSNamedGroup>(extensions.read_u16());
+					TLS_VERIFY_ALERT_RETURN(group == TLS_NAMED_GROUP_SECP256R1, HANDSHAKE_FAILURE);
+					U16 keyExchangeLength = extensions.read_u16();
+					// 1 byte for compression, and two 32 byte integers for the key
+					TLS_VERIFY_ALERT_RETURN(keyExchangeLength == 1 + 32 + 32, ILLEGAL_PARAMETER);
+					U8 compression = extensions.read_u8();
+					// Don't accept compressed keys
+					TLS_VERIFY_ALERT_RETURN(compression == 4, ILLEGAL_PARAMETER);
+					extensions.read_bytes(serverPublicKey, keyExchangeLength - 1);
+					hasKeyShare = true;
+				} break;
+				default: {
+					extensions.offset += extensionDataLength;
+				} break;
+				}
+
+				TLS_VERIFY_ALERT_RETURN(extensions.offset == extensions.capacity, DECODE_ERROR);
+				extensions.capacity = extensionsCapacity;
+			}
+			TLS_VERIFY_ALERT_RETURN(!extensions.failed, DECODE_ERROR);
+			TLS_VERIFY_ALERT_RETURN(extensions.offset == extensions.capacity, DECODE_ERROR);
+			TLS_VERIFY_ALERT_RETURN(hasKeyShare && hasTLS13, HANDSHAKE_FAILURE);
+			record.skip_bytes(extensions.offset);
+
+			TLS_DEBUG_LOG("HANDSHAKE KEY CALC\n", 3);
+
+			// Server hello done, key calc
+			transcriptHash.update(receiveBuffer + receiveBufferDataEnd - recordLength, recordLength);
+
+			const U32 hashLength = SHA256_HASH_SIZE;
+			const U32 encryptionKeySize = AES_KEY_SIZE_BYTES;
+			U8 clientToServerHelloHash[hashLength];
+			SHA256 tmpHash;
+			tmpHash.copy_from(transcriptHash);
+			tmpHash.digest(clientToServerHelloHash);
+
+			U8 earlySecret[hashLength];
+			U8 zeros[hashLength]{};
+			U8 emptyHash[hashLength];
+			sha256(emptyHash, "", 0);
+			// early secret
+			sha256_hkdf_extract(earlySecret, "", 0, zeros, hashLength);
+			// handshake secret
+			U8 derivedSecret[hashLength];
+			sha256_derive_secret(derivedSecret, hashLength, earlySecret, hashLength, "derived", 7, emptyHash, hashLength);
+
+			U8 sharedSecret[hashLength];
+			B32 keyCalcSuccess = secp256r1_ecdhe(sharedSecret, serverPublicKey, serverPublicKey + 32, diffieHellmanPrivateKey);
+			TLS_VERIFY_ALERT_RETURN(keyCalcSuccess, HANDSHAKE_FAILURE);
+
+			U8 handshakeSecret[hashLength];
+			sha256_hkdf_extract(handshakeSecret, derivedSecret, hashLength, sharedSecret, 32);
+			// Calc client and server handshake keys
+			sha256_derive_secret(clientTrafficSecret, hashLength, handshakeSecret, hashLength, "c hs traffic", 12, clientToServerHelloHash, hashLength);
+			sha256_derive_secret(serverTrafficSecret, hashLength, handshakeSecret, hashLength, "s hs traffic", 12, clientToServerHelloHash, hashLength);
+			sha256_hkdf_expand_label(clientKey, encryptionKeySize, clientTrafficSecret, hashLength, "key", 3, "", 0);
+			sha256_hkdf_expand_label(serverKey, encryptionKeySize, serverTrafficSecret, hashLength, "key", 3, "", 0);
+			sha256_hkdf_expand_label(clientIV, 12, clientTrafficSecret, hashLength, "iv", 2, "", 0);
+			sha256_hkdf_expand_label(serverIV, 12, serverTrafficSecret, hashLength, "iv", 2, "", 0);
+
+			// master secret
+			sha256_derive_secret(derivedSecret, hashLength, handshakeSecret, hashLength, "derived", 7, emptyHash, hashLength);
+			sha256_hkdf_extract(masterSecret, derivedSecret, hashLength, zeros, hashLength);
+
+			encryptedMessageCounter = 0;
+			decryptedMessageCounter = 0;
+			state = TLS_CLIENT_STATE_WAIT_ENCRYPTED_EXTENSIONS;
+		} break;
+		case TLS_CLIENT_STATE_WAIT_ENCRYPTED_EXTENSIONS:
+		case TLS_CLIENT_STATE_WAIT_CERTIFICATE_CERTIFICATE_REQUEST:
+		case TLS_CONNECTION_STATE_WAIT_CERTIFICATE:
+		case TLS_CONNECTION_STATE_WAIT_CERTIFICATE_VERIFY:
+		case TLS_CONNECTION_STATE_WAIT_FINISHED: {
+			TLS_VERIFY_ALERT_RETURN(currentReceiveHeader.contentType == TLS_CONTENT_TYPE_APPLICATION_DATA, UNEXPECTED_MESSAGE);
+			decrypt_record(receiveBufferDataEnd - recordLength, recordLength);
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// Decrypt error must have occured, just exit
+				return;
+			}
+			TLS_VERIFY_ALERT_RETURN(recordLength >= 17, DECODE_ERROR);
+			recordLength -= 17; // Skip auth tag and point at the first byte of the decrypted message
+			// Skip zero padding
+			U32 zeroPadding = 0;
+			while (recordLength > 0 && record.bytes[recordLength] == 0) {
+				recordLength--, zeroPadding++;
+			}
+			TLSContentType realContentType = static_cast<TLSContentType>(record.bytes[recordLength]);
+			if (realContentType == TLS_CONTENT_TYPE_HANDSHAKE) {
+				record.capacity = recordLength;
+				process_handshake_messages(record);
+				TLS_VERIFY_ALERT_RETURN(record.offset == record.capacity, DECODE_ERROR);
+			} else if (realContentType == TLS_CONTENT_TYPE_ALERT) {
+				TLSAlertLevel level = static_cast<TLSAlertLevel>(record.read_u8());
+				TLSAlertDescription description = static_cast<TLSAlertDescription>(record.read_u8());
+				if (description == TLS_ALERT_CLOSE_NOTIFY) {
+					error_alert(TLS_ALERT_CLOSE_NOTIFY);
+				} else {
+					close_no_alert();
+					TLS_DEBUG_LOG("RECEIVED ALERT\n", 1);
+					if (!record.failed) {
+						TLS_DEBUG_LOG_NUM(U32(level), 1);
+						TLS_DEBUG_LOG(", Description ", 1);
+						TLS_DEBUG_LOG_NUM(U32(description), 1);
+						TLS_DEBUG_LOG("\n", 1);
+					} else {
+						TLS_DEBUG_LOG("Alert malformed\n", 1);
+					}
+				}
+				// Not a data message, discard its contents
+				receiveBufferDataEnd -= record.capacity;
+				return;
+			} else {
+				TLS_VERIFY_ALERT_RETURN(false, UNEXPECTED_MESSAGE);
+			}
+			recordLength += 17 + zeroPadding; // Add back in the auth tag and zero padding so we properly discard them
+			record.capacity += 17 + zeroPadding;
+			record.skip_bytes(17 + zeroPadding);
+		} break;
+		case TLS_CONNECTION_STATE_CONNECTED: {
+			TLS_VERIFY_ALERT_RETURN(currentReceiveHeader.contentType == TLS_CONTENT_TYPE_APPLICATION_DATA, UNEXPECTED_MESSAGE);
+			//struct {
+			//	opaque content[TLSPlaintext.length];
+			//	ContentType type;
+			//	uint8 zeros[length_of_padding];
+			//} TLSInnerPlaintext;
+			decrypt_record(receiveBufferDataEnd - recordLength, recordLength);
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// Decrypt error must have occured, just exit
+				return;
+			}
+			TLS_VERIFY_ALERT_RETURN(recordLength >= 17, DECODE_ERROR);
+			recordLength -= 17; // Skip auth tag and point at the first byte of the decrypted message
+			// Skip zero padding
+			U32 zeroPadding = 0;
+			while (recordLength > 0 && record.bytes[recordLength] == 0) {
+				recordLength--, zeroPadding++;
+			}
+			TLSContentType realContentType = static_cast<TLSContentType>(record.bytes[recordLength]);
+			if (realContentType == TLS_CONTENT_TYPE_APPLICATION_DATA) {
+				TLS_DEBUG_LOG("RECEIVED APPLICATION DATA\n", 3);
+				receiveBufferDataEnd -= 17 - zeroPadding; // discard auth tag, zero padding, and content type
+				receiveBufferUserDataEnd = receiveBufferDataEnd;
+				return;
+			} else if (realContentType == TLS_CONTENT_TYPE_HANDSHAKE) {
+				TLS_DEBUG_LOG("RECEIVED HANDSHAKE MESSAGE\n", 3);
+				TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(record.read_u8());
+				U32 handshakeLength = record.read_u24();
+				TLS_VERIFY_ALERT_RETURN(record.offset + handshakeLength <= record.capacity, DECODE_ERROR);
+				if (handshakeType == TLS_HANDSHAKE_TYPE_KEY_UPDATE) {
+					TLS_DEBUG_LOG("  KEY_UPDATE\n", 3);
+					//struct {
+					//	KeyUpdateRequest request_update;
+					//} KeyUpdate;
+					TLSKeyUpdateRequest updateRequest = static_cast<TLSKeyUpdateRequest>(record.read_u8());
+					TLS_VERIFY_ALERT_RETURN(!record.failed, DECODE_ERROR);
+
+					const U32 hashLength = SHA256_HASH_SIZE;
+					const U32 keyLength = AES_KEY_SIZE_BYTES;
+					const U32 ivLength = AES_GCM_IV_SIZE;
+
+					Byte* updateTrafficSecret = isServer ? clientTrafficSecret : serverTrafficSecret;
+					Byte* updateKey = isServer ? clientKey : serverKey;
+					Byte* updateIV = isServer ? clientIV : serverIV;
+					Byte oldTrafficSecret[hashLength];
+					memcpy(oldTrafficSecret, updateTrafficSecret, hashLength);
+					sha256_hkdf_expand_label(updateTrafficSecret, hashLength, oldTrafficSecret, hashLength, "traffic upd", 11, "", 0);
+					memset(oldTrafficSecret, 0, sizeof(oldTrafficSecret));
+					sha256_hkdf_expand_label(updateKey, keyLength, updateTrafficSecret, hashLength, "key", 3, "", 0);
+					sha256_hkdf_expand_label(updateIV, ivLength, updateTrafficSecret, hashLength, "iv", 2, "", 0);
+					decryptedMessageCounter = 0;
+
+					shouldKeyUpdate |= updateRequest == TLS_KEY_UPDATE_REQUESTED;
+				} else if (handshakeType == TLS_HANDSHAKE_TYPE_NEW_SESSION_TICKET) {
+					// Ignore, we're not handling PSKs
+					record.skip_bytes(handshakeLength);
+				} else {
+					TLS_VERIFY_ALERT_RETURN(false, UNEXPECTED_MESSAGE);
+				}
+			} else if (realContentType == TLS_CONTENT_TYPE_ALERT) {
+				TLSAlertLevel level = static_cast<TLSAlertLevel>(record.read_u8());
+				TLSAlertDescription description = static_cast<TLSAlertDescription>(record.read_u8());
+				if (description == TLS_ALERT_CLOSE_NOTIFY) {
+					error_alert(TLS_ALERT_CLOSE_NOTIFY);
+				} else {
+					close_no_alert();
+					TLS_DEBUG_LOG("RECEIVED ALERT\n", 1);
+					if (!record.failed) {
+						TLS_DEBUG_LOG_NUM(U32(level), 1);
+						TLS_DEBUG_LOG(", Description ", 1);
+						TLS_DEBUG_LOG_NUM(U32(description), 1);
+						TLS_DEBUG_LOG("\n", 1);
+					} else {
+						TLS_DEBUG_LOG("Alert malformed\n", 1);
+					}
+				}
+				// Not a data message, discard its contents
+				receiveBufferDataEnd -= record.capacity;
+				return;
+			} else {
+				TLS_VERIFY_ALERT_RETURN(false, UNEXPECTED_MESSAGE);
+			}
+			record.skip_bytes(17 + zeroPadding); // Skip auth tag, zero padding, and content type
+		} break;
+		}
+
+		TLS_VERIFY_ALERT_RETURN(!record.failed && record.offset == record.capacity, DECODE_ERROR);
+
+		// Record was completely consumed unless it was an application data
+		receiveBufferDataEnd -= record.offset;
+		if (receiveBufferUserReadPos == receiveBufferDataEnd) {
+			receiveBufferUserReadPos = receiveBufferUserDataEnd = receiveBufferDataEnd = 0;
+		}
+	}
+
+	// Return true if could receive more data
+	B32 receive_data() {
+		if (state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING || state == TLS_CONNECTION_STATE_CLOSED) {
+			return false;
+		}
+		B32 couldReceiveMoreData = false;
+		while (true) {
+			Byte* buffer;
+			U32 bufferSize;
+			if (currentRecordReceiveLength < sizeof(TLSRecordHeader)) {
+				buffer = reinterpret_cast<Byte*>(&currentReceiveHeader) + currentRecordReceiveLength;
+				bufferSize = 5 - currentRecordReceiveLength;
+			} else {
+				if (receiveBufferDataEnd == sizeof(receiveBuffer) && receiveBufferUserReadPos > 0) {
+					move_receive_data_to_beginning_of_buffer();
+				}
+				U32 recordLength = bswap16(currentReceiveHeader.length);
+				buffer = receiveBuffer + receiveBufferDataEnd;
+				bufferSize = min<U32>(sizeof(receiveBuffer) - receiveBufferDataEnd, recordLength - (currentRecordReceiveLength - 5));
+			}
+			if (bufferSize == 0) {
+				couldReceiveMoreData = true;
+				break;
+			}
+			SyscallTCPReceiveArgs recvArgs;
+			recvArgs.bufferAddress = U64(buffer);
+			recvArgs.bufferSize = bufferSize;
+			recvArgs.blockIndex = tcpConnection;
+			I64 amountReceived = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
+			if (amountReceived > 0) {
+				currentRecordReceiveLength += amountReceived;
+				if (currentRecordReceiveLength > sizeof(TLSRecordHeader)) {
+					receiveBufferDataEnd += amountReceived;
+				}
+			} else if (amountReceived == 0) {
+				break;
+			} else {
+				TLS_DEBUG_LOG("Connection closed\n", 2);
+				state = TLS_CONNECTION_STATE_CLOSED;
+				break;
+			}
+			if (currentRecordReceiveLength > sizeof(TLSRecordHeader)) {
+				U32 recordLength = bswap16(currentReceiveHeader.length);
+				if (recordLength > TLS_MAX_RECORD_LENGTH) {
+					error_alert(TLS_ALERT_RECORD_OVERFLOW);
+					break;
+				}
+				if (currentRecordReceiveLength - sizeof(TLSRecordHeader) >= recordLength) {
+					process_received_record();
+					if (state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING || state == TLS_CONNECTION_STATE_CLOSED) {
+						break;
+					}
+				} else if (receiveBufferDataEnd == sizeof(receiveBuffer)) {
+					if (receiveBufferUserReadPos > 0) {
+						move_receive_data_to_beginning_of_buffer();
+					} else {
+						if (state != TLS_CONNECTION_STATE_CONNECTED) {
+							// Too much data received during handshake
+							// Since the user will never process it and free up space, this is an error
+							// Should never happen in practice
+							error_alert(TLS_ALERT_RECORD_OVERFLOW);
+						} else {
+							couldReceiveMoreData = true;
+						}
+						break;
+					}
+				}
+			}
+		}
+		return couldReceiveMoreData;
 	}
 
 	void force_key_update() {
-		if (serverState != TLS_SERVER_STATE_APPLICATION) {
+		if (state != TLS_CONNECTION_STATE_CONNECTED) {
 			return;
 		}
-
-		if (TLSRecord::DATA_BUFFER_SIZE - sendRecord.dataOffset > 32) {
-			const u32 hashLength = SHA256_HASH_SIZE;
-			const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-			const u32 encryptionIVSize = AES_GCM_IV_SIZE;
-
-			u32 sendRecordBegin = sendRecord.write_header(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.write_byte(TLS_HANDSHAKE_KEY_UPDATE);
-			sendRecord.write_int24(1);
-			sendRecord.write_byte(TLS_KEY_UPDATE_REQUESTED);
-			sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-			sendRecord.patch_int16(sendRecord.dataOffset - sendRecordBegin - 5 + 16, sendRecordBegin + 3);
-			sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, sendRecordBegin);
-			ConnectionError sendError = sendRecord._send_data(clientTCPConnection);
-			CHECK_CONNECTION_PROBLEM(sendError != CONNECTION_ERROR_SUCCESS);
-
-			u8 oldTrafficSecret[hashLength];
-			memcpy(oldTrafficSecret, serverTrafficSecret, hashLength);
-			sha256_hkdf_expand_label(serverTrafficSecret, hashLength, oldTrafficSecret, hashLength, "traffic upd", 11, "", 0);
-			sha256_hkdf_expand_label(serverKey, encryptionKeySize, serverTrafficSecret, hashLength, "key", 3, "", 0);
-			sha256_hkdf_expand_label(serverIV, encryptionIVSize, serverTrafficSecret, hashLength, "iv", 2, "", 0);
-			serverMessageEncryptCount = 0;
-
-			shouldSendKeyUpdate = false;
-		} else {
-			shouldSendKeyUpdate = true;
-		}
-	}
-
-	void do_server_hello() {
-		Keccak random;
-		random.make_secure_random();
-
-		u8 serverPublicKey[32 + 32];
-		secp256r1_generate_keypair(random, serverPublicKey, serverPrivateKey);
-		
-		u32 recordStart = sendRecord.write_header(TLS_RECORD_TYPE_HANDSHAKE);
-		sendRecord.write_byte(TLS_HANDSHAKE_SERVER_HELLO);
-		u32 helloLengthPos = sendRecord.dataOffset;
-		sendRecord.write_int24(0);
-
-		// Server version
-		sendRecord.write_int16(0x0303);
-		// Server random
-		random.squeeze(sendRecord.dataBuffer + sendRecord.dataOffset, 32);
-		sendRecord.dataOffset += 32;
-		// Echo client session id
-		sendRecord.write_bytes(sessionId, 32);
-		sendRecord.write_int16(cipherSuite);
-		// Compression method
-		sendRecord.write_byte(0);
-
-
-		u32 extensionsLengthPos = sendRecord.dataOffset;
-		sendRecord.write_int16(0);
-
-		sendRecord.write_int16(TLS_EXTENSION_SUPPORTED_VERSIONS);
-		sendRecord.write_int16(2);
-		sendRecord.write_int16(0x0304);
-
-		sendRecord.write_int16(TLS_EXTENSION_KEY_SHARE);
-		//TODO I think this is wrong, should be 4 + 1 + 32 + 32?
-		sendRecord.write_int16(2 + 1 + 32 + 32);
-		sendRecord.write_int16(TLS_GROUP_SECP256R1);
-		sendRecord.write_int16(1 + 32 + 32);
-		sendRecord.write_byte(4);
-		sendRecord.write_bytes(serverPublicKey, 32 + 32);
-
-		sendRecord.patch_int16(sendRecord.dataOffset - extensionsLengthPos - 2, extensionsLengthPos);
-
-
-		sendRecord.write_int24(sendRecord.dataOffset - helloLengthPos - 3, helloLengthPos);
-		sendRecord.patch_header_length(recordStart);
-
-		runningMessageHash.update(sendRecord.dataBuffer + 5, sendRecord.dataOffset - 5);
-	}
-
-	void do_server_handshake() {
-		const u32 hashLength = SHA256_HASH_SIZE;
-		SHA256 tmpHash;
-
-		u32 recordStart = sendRecord.write_header(TLS_RECORD_TYPE_CHANGE_CIPHER_SPEC);
-		sendRecord.patch_int16(1, recordStart + 3);
-		sendRecord.write_byte(1);
-
-		recordStart = sendRecord.write_header(TLS_RECORD_TYPE_APPLICATION_DATA);
-		sendRecord.write_byte(TLS_HANDSHAKE_ENCRYPTED_EXTENSIONS);
-		sendRecord.write_int24(2);
-		sendRecord.write_int16(0);
-		runningMessageHash.update(sendRecord.dataBuffer + recordStart + 5, sendRecord.dataOffset - recordStart - 5);
-		sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-		sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, recordStart);
-
-		recordStart = sendRecord.write_header(TLS_RECORD_TYPE_APPLICATION_DATA);
-		sendRecord.write_byte(TLS_HANDSHAKE_CERTIFICATE);
-		sendRecord.write_int24(1 + 3 + 3 + certificate->certLength + 2);
-		// certificate request context length
-		sendRecord.write_byte(0);
-		// certificate list length
-		sendRecord.write_int24(3 + certificate->certLength + 2);
-		// cert_data length
-		sendRecord.write_int24(certificate->certLength);
-		sendRecord.write_bytes(certificate->cert, certificate->certLength);
-		// extensions length
-		sendRecord.write_int16(0);
-		runningMessageHash.update(sendRecord.dataBuffer + recordStart + 5, sendRecord.dataOffset - recordStart - 5);
-		sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-		sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, recordStart);
-
-		recordStart = sendRecord.write_header(TLS_RECORD_TYPE_APPLICATION_DATA);
-		sendRecord.write_byte(TLS_HANDSHAKE_CERTIFICATE_VERIFY);
-		constexpr u32 rsaBits = 2048;
-		constexpr u32 signatureSize = rsaBits / 8;
-		sendRecord.write_int24(2 + 2 + signatureSize);
-		sendRecord.write_int16(TLS_RSA_PKCS1_SHA256);
-		sendRecord.write_int16(signatureSize);
-		const char* contextString = "TLS 1.3, server CertificateVerify";
-		constexpr u32 contextStringLength = 33;
-		constexpr u32 signatureContextLength = 64 + contextStringLength + 1 + hashLength;
-		u8 signatureContext[signatureContextLength];
-		memset(signatureContext, 0x20, 64);
-		memcpy(signatureContext + 64, contextString, contextStringLength);
-		signatureContext[64 + contextStringLength] = 0x00;
-		tmpHash.copy_from(runningMessageHash);
-		tmpHash.digest(signatureContext + 64 + contextStringLength + 1);
-		u8 signature[signatureSize];
-		rsassa_pkcs1_sign_sha256(signature, signatureContext, signatureContextLength, certificate->rsaPrivateKey, certificate->rsaModulus, rsaBits);
-		sendRecord.write_bytes(signature, signatureSize);
-		runningMessageHash.update(sendRecord.dataBuffer + recordStart + 5, sendRecord.dataOffset - recordStart - 5);
-		sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-		sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, recordStart);
-
-		recordStart = sendRecord.write_header(TLS_RECORD_TYPE_APPLICATION_DATA);
-		sendRecord.write_byte(TLS_HANDSHAKE_FINISHED);
-		sendRecord.write_int24(hashLength);
-		u8 finishedKey[hashLength];
-		sha256_hkdf_expand_label(finishedKey, hashLength, serverTrafficSecret, hashLength, "finished", 8, "", 0);
-		u8 helloToNowHash[hashLength];
-		tmpHash.copy_from(runningMessageHash);
-		tmpHash.digest(helloToNowHash);
-		u8 verifyData[hashLength];
-		sha256_hmac(verifyData, finishedKey, hashLength, helloToNowHash, hashLength);
-		sendRecord.write_bytes(verifyData, hashLength);
-		runningMessageHash.update(sendRecord.dataBuffer + recordStart + 5, sendRecord.dataOffset - recordStart - 5);
-		sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-		sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, recordStart);
-	}
-
-	void handle_client_hello(u32 dataBegin, u16 messageEnd) {
-		CHECK_CONNECTION_PROBLEM((receiveRecord.dataOffset + 2 + 32 + 1 + 32 + 2) > messageEnd);
-		// Version should be 0x0303
-		u16 version = receiveRecord.read_int16();
-		// Client random
-		receiveRecord.dataOffset += 32;
-		u8 sessionIdLength = receiveRecord.read_byte();
-		CHECK_CONNECTION_PROBLEM(sessionIdLength != 32);
-		receiveRecord.read_bytes(sessionId, sessionIdLength);
-		
-		u16 cipherSuitesEnd = receiveRecord.read_int16();
-		cipherSuitesEnd += receiveRecord.dataOffset;
-		CHECK_CONNECTION_PROBLEM(cipherSuitesEnd > messageEnd);
-		b32 hasServerCipher = false;
-		while (receiveRecord.dataOffset + 1 < cipherSuitesEnd) {
-			TLSCipherSuite clientCipherSuite = static_cast<TLSCipherSuite>(receiveRecord.read_int16());
-			if (clientCipherSuite == TLS_AES_128_GCM_SHA256) {
-				hasServerCipher = true;
-			}
-		}
-		cipherSuite = TLS_AES_128_GCM_SHA256;
-
-		CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 2 > messageEnd);
-		u8 legacyCompressionMethodsLength = receiveRecord.read_byte();
-		CHECK_CONNECTION_PROBLEM(legacyCompressionMethodsLength != 1);
-		u8 legacyCompressionMethod = receiveRecord.read_byte();
-		CHECK_CONNECTION_PROBLEM(legacyCompressionMethod != 0);
-
-		CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 2 > messageEnd);
-		u32 extensionsEnd = receiveRecord.read_int16();
-		extensionsEnd += receiveRecord.dataOffset;
-		CHECK_CONNECTION_PROBLEM(extensionsEnd > messageEnd);
-		while (receiveRecord.dataOffset < extensionsEnd) {
-			CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 4 < extensionsEnd);
-			TLSExtension extensionType = static_cast<TLSExtension>(receiveRecord.read_int16());
-			u32 extensionEnd = receiveRecord.read_int16();
-			extensionEnd += receiveRecord.dataOffset;
-			CHECK_CONNECTION_PROBLEM(extensionEnd > extensionsEnd);
-
-			if (extensionType == TLS_EXTENSION_SUPPORTED_VERSIONS) {
-				CHECK_CONNECTION_PROBLEM(extensionEnd + 3 > extensionEnd);
-				u8 tlsVersionEnd = receiveRecord.read_byte();
-				CHECK_CONNECTION_PROBLEM(tlsVersionEnd < 2);
-				tlsVersionEnd += receiveRecord.dataOffset;
-				b32 hasTls13 = false;
-				while (receiveRecord.dataOffset + 1 < tlsVersionEnd) {
-					u16 version = receiveRecord.read_int16();
-					if (version == 0x0304) {
-						hasTls13 = true;
-					}
-				}
-				CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != tlsVersionEnd);
-				CHECK_CONNECTION_PROBLEM(!hasTls13);
-			} else if (extensionType == TLS_EXTENSION_SERVER_NAME) {
-				u32 nameListEnd = receiveRecord.read_int16();
-				CHECK_CONNECTION_PROBLEM(nameListEnd < 3);
-				nameListEnd += receiveRecord.dataOffset;
-				CHECK_CONNECTION_PROBLEM(nameListEnd > extensionEnd);
-
-				TLSServerNameType nameType = static_cast<TLSServerNameType>(receiveRecord.read_byte());
-				CHECK_CONNECTION_PROBLEM(nameType != TLS_SERVER_NAME_HOST_NAME);
-				u16 hostNameLength = receiveRecord.read_int16();
-				CHECK_CONNECTION_PROBLEM(hostNameLength + receiveRecord.dataOffset > extensionEnd);
-			} else if (extensionType == TLS_EXTENSION_SUPPORTED_GROUPS) {
-				u32 supportedGroupEnd = receiveRecord.read_int16();
-				supportedGroupEnd += receiveRecord.dataOffset;
-				CHECK_CONNECTION_PROBLEM(supportedGroupEnd != extensionEnd);
-
-				b32 hasSecp256r1 = false;
-				while (receiveRecord.dataOffset + 1 < supportedGroupEnd) {
-					TLSNamedGroup group = static_cast<TLSNamedGroup>(receiveRecord.read_int16());
-					if (group == TLS_GROUP_SECP256R1) {
-						hasSecp256r1 = true;
-					}
-				}
-				CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != supportedGroupEnd);
-				CHECK_CONNECTION_PROBLEM(!hasSecp256r1);
-			} else if (extensionType == TLS_EXTENSION_SIGNATURE_ALGORITHMS) {
-				u32 signatureSchemeEnd = receiveRecord.read_int16();
-				signatureSchemeEnd += receiveRecord.dataOffset;
-				CHECK_CONNECTION_PROBLEM(signatureSchemeEnd != extensionEnd);
-
-				b32 hasSecpr1ECDSA = false;
-				while (receiveRecord.dataOffset + 1 < signatureSchemeEnd) {
-					TLSSignatureScheme signatureScheme = static_cast<TLSSignatureScheme>(receiveRecord.read_int16());
-					if (signatureScheme == TLS_ECDSA_SECP256R1_SHA256) {
-						hasSecpr1ECDSA = true;
-					}
-				}
-				CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != signatureSchemeEnd);
-				CHECK_CONNECTION_PROBLEM(!hasSecpr1ECDSA);
-			} else if (extensionType == TLS_EXTENSION_KEY_SHARE) {
-				u32 keyShareEnd = receiveRecord.read_int16();
-				keyShareEnd += receiveRecord.dataOffset;
-				CHECK_CONNECTION_PROBLEM(keyShareEnd > extensionEnd);
-				b32 hasSecp256r1 = false;
-				while (receiveRecord.dataOffset + 3 < keyShareEnd) {
-					TLSNamedGroup group = static_cast<TLSNamedGroup>(receiveRecord.read_int16());
-					u32 publicKeyEnd = receiveRecord.read_int16();
-					publicKeyEnd += receiveRecord.dataOffset;
-					if (group == TLS_GROUP_SECP256R1) {
-						u8 legacyCompression = receiveRecord.read_byte();
-						CHECK_CONNECTION_PROBLEM(legacyCompression != 4);
-						CHECK_CONNECTION_PROBLEM(publicKeyEnd - receiveRecord.dataOffset != 32 + 32);
-						receiveRecord.read_bytes(clientPublicKey, 32 + 32);
-						hasSecp256r1 = true;
-					} else {
-						receiveRecord.dataOffset = publicKeyEnd;
-					}
-				}
-				CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != keyShareEnd);
-				CHECK_CONNECTION_PROBLEM(!hasSecp256r1);
-			} else {
-				receiveRecord.dataOffset = extensionEnd;
-			}
-			CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != extensionEnd);
-		}
-		CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != extensionsEnd);
-
-		runningMessageHash.update(receiveRecord.dataBuffer + dataBegin, messageEnd - dataBegin);
-
-		calc_handshake_keys();
-	}
-
-	void handle_client_handshake(TLSHandshakeType messageType, u32 messageEnd) {
-		if (messageType == TLS_HANDSHAKE_FINISHED) {
-			const u32 hashLength = SHA256_HASH_SIZE;
-			CHECK_CONNECTION_PROBLEM(messageEnd - receiveRecord.dataOffset != hashLength);
-
-			u8 helloToNowHash[hashLength];
-			SHA256 tmpHash;
-			tmpHash.copy_from(runningMessageHash);
-			tmpHash.digest(helloToNowHash);
-
-			u8 finishedKey[hashLength];
-			sha256_hkdf_expand_label(finishedKey, hashLength, clientTrafficSecret, hashLength, "finished", 8, "", 0);
-			u8 verifyData[hashLength];
-			sha256_hmac(verifyData, finishedKey, hashLength, helloToNowHash, hashLength);
-
-			b32 handshakeVerified = memcmp(verifyData, receiveRecord.dataBuffer + receiveRecord.dataOffset, hashLength) == 0;
-			CHECK_CONNECTION_PROBLEM(!handshakeVerified);
-			receiveRecord.dataOffset += hashLength;
-
-			calc_application_keys();
-
-			serverState = TLS_SERVER_STATE_APPLICATION;
-		} else {
-			CONNECTION_ERROR;
-		}
-	}
-
-	void process_record(TLSRecordType recordType, u32 dataBegin, u32 recordEnd) {
-		if (serverState == TLS_SERVER_STATE_HELLO) {
-			if (recordType == TLS_RECORD_TYPE_HANDSHAKE) {
-				TLSHandshakeType messageType = static_cast<TLSHandshakeType>(receiveRecord.read_byte());
-				CHECK_CONNECTION_PROBLEM(messageType != TLS_HANDSHAKE_CLIENT_HELLO);
-				u32 messageLength = receiveRecord.read_int24();
-				u32 messageEnd = receiveRecord.dataOffset + messageLength;
-				CHECK_CONNECTION_PROBLEM(messageEnd > recordEnd);
-				handle_client_hello(dataBegin, messageEnd);
-				dataBegin = messageEnd;
-			} else {
-				CONNECTION_ERROR;
-			}
-			sendRecord.reset();
-			do_server_hello();
-			serverState = TLS_SERVER_STATE_HANDSHAKE;
-			do_server_handshake();
-			sendRecord._send_data(clientTCPConnection);
-		} else if (serverState == TLS_SERVER_STATE_HANDSHAKE) {
-			if (recordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-				b32 decryptSuccess = receiveRecord.decrypt(clientKey, clientIV, clientMessageDecryptCount, recordEnd);
-				CHECK_CONNECTION_PROBLEM(!decryptSuccess);
-
-				u32 messagesEnd = recordEnd - 17;
-				u32 zeroPadding = 0;
-				for (; messagesEnd > 0 && receiveRecord.dataBuffer[messagesEnd] == 0; messagesEnd--, zeroPadding++);
-				TLSRecordType realRecordType = static_cast<TLSRecordType>(receiveRecord.dataBuffer[messagesEnd]);
-				if (realRecordType == TLS_RECORD_TYPE_HANDSHAKE) {
-					while (receiveRecord.dataOffset < messagesEnd) {
-						u32 messageStart = receiveRecord.dataOffset;
-						TLSHandshakeType messageType = static_cast<TLSHandshakeType>(receiveRecord.read_byte());
-						u32 messageLength = receiveRecord.read_int24();
-						u32 messageEnd = receiveRecord.dataOffset + messageLength;
-						CHECK_CONNECTION_PROBLEM(messageEnd > messagesEnd);
-						handle_client_handshake(messageType, messageEnd);
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != messageEnd);
-						runningMessageHash.update(receiveRecord.dataBuffer + messageStart, messageEnd - messageStart);
-					}
-				} else if (realRecordType == TLS_RECORD_TYPE_ALERT) {
-					CHECK_CONNECTION_PROBLEM(messagesEnd - receiveRecord.dataOffset != 2);
-					TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(receiveRecord.read_byte());
-					TLSAlertDescription alert = static_cast<TLSAlertDescription>(receiveRecord.read_byte());
-					CONNECTION_ERROR;
-				} else {
-					CONNECTION_ERROR;
-				}
-
-				receiveRecord.dataOffset += zeroPadding;
-				receiveRecord.dataOffset += 17;
-			} else if (recordType == TLS_RECORD_TYPE_CHANGE_CIPHER_SPEC) {
-				CHECK_CONNECTION_PROBLEM(recordEnd != receiveRecord.dataOffset + 1);
-				u8 data = receiveRecord.read_byte();
-				CHECK_CONNECTION_PROBLEM(data != 0x01);
-			} else {
-				CONNECTION_ERROR;
-			}
-		} else if (serverState == TLS_SERVER_STATE_APPLICATION) {
-			if (recordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-				b32 decryptSuccess = receiveRecord.decrypt(clientKey, clientIV, clientMessageDecryptCount, recordEnd);
-				CHECK_CONNECTION_PROBLEM(!decryptSuccess);
-
-				u32 messagesEnd = recordEnd - 16 - 1;
-				u32 zeroPadding = 0;
-				for (; messagesEnd > 0 && receiveRecord.dataBuffer[messagesEnd] == 0; messagesEnd--, zeroPadding++);
-				TLSRecordType realRecordType = static_cast<TLSRecordType>(receiveRecord.dataBuffer[messagesEnd]);
-				if (realRecordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-
-				} else if (realRecordType == TLS_RECORD_TYPE_HANDSHAKE) {
-					CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 4 >= messagesEnd);
-					TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(receiveRecord.read_byte());
-					u32 handshakeLength = receiveRecord.read_int24();
-					u32 handshakeEnd = receiveRecord.dataOffset + handshakeLength;
-					CHECK_CONNECTION_PROBLEM(handshakeEnd > messagesEnd);
-
-					if (handshakeType == TLS_HANDSHAKE_KEY_UPDATE) {
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 1 > handshakeEnd);
-						TLSKeyUpdateRequest updateRequest = static_cast<TLSKeyUpdateRequest>(receiveRecord.read_byte());
-
-						const u32 hashLength = SHA256_HASH_SIZE;
-						const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-						const u32 encryptionIVSize = AES_GCM_IV_SIZE;
-
-						u8 oldTrafficSecret[hashLength];
-						memcpy(oldTrafficSecret, clientTrafficSecret, hashLength);
-						sha256_hkdf_expand_label(clientTrafficSecret, hashLength, oldTrafficSecret, hashLength, "traffic upd", 11, "", 0);
-						sha256_hkdf_expand_label(clientKey, encryptionKeySize, clientTrafficSecret, hashLength, "key", 3, "", 0);
-						sha256_hkdf_expand_label(clientIV, encryptionIVSize, clientTrafficSecret, hashLength, "iv", 2, "", 0);
-						clientMessageDecryptCount = 0;
-
-						shouldKeyUpdate |= updateRequest == TLS_KEY_UPDATE_REQUESTED;
-					} else {
-						CONNECTION_ERROR;	
-					}
-				} else if (realRecordType == TLS_RECORD_TYPE_ALERT) {
-					CHECK_CONNECTION_PROBLEM((messagesEnd - receiveRecord.dataOffset) != 2);
-					TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(receiveRecord.read_byte());
-					TLSAlertDescription alert = static_cast<TLSAlertDescription>(receiveRecord.read_byte());
-					CONNECTION_ERROR;
-				} else {
-					CONNECTION_ERROR;
-				}
-				// Do something with the application data here
-				u32 dataLength = messagesEnd - receiveRecord.dataOffset;
-				u32 receivedLength = min(dataLength, u32(sizeof(receiveBuffer)) - receiveBufferDataEnd);
-				u32 receivedLengthIfBufferWasContiguous = min(dataLength, receiveBufferCap - receiveBufferDataEnd + receiveBufferPos);
-				if (receivedLengthIfBufferWasContiguous > receivedLength) {
-					receivedLength = receivedLengthIfBufferWasContiguous;
-					memmove(receiveBuffer, receiveBuffer + receiveBufferPos, receiveBufferDataEnd - receiveBufferPos);
-					receiveBufferDataEnd -= receiveBufferPos;
-					receiveBufferPos = 0;
-				}
-				memcpy(receiveBuffer + receiveBufferDataEnd, receiveRecord.dataBuffer + receiveRecord.dataOffset, receivedLength);
-				
-				receiveRecord.dataOffset += receivedLength;
-				dataLeftInReceiveRecord = dataLength - receivedLength;
-				if (receivedLength == dataLength) {
-					receiveRecord.dataOffset += zeroPadding;
-					receiveRecord.dataOffset += 1 + 16;
-				}
-			} else if (recordType == TLS_RECORD_TYPE_ALERT) {
-				CHECK_CONNECTION_PROBLEM((recordEnd - receiveRecord.dataOffset) != 2);
-				TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(receiveRecord.read_byte());
-				TLSAlertDescription alert = static_cast<TLSAlertDescription>(receiveRecord.read_byte());
-				CONNECTION_ERROR;
-			} else {
-				CONNECTION_ERROR;
-			}
-		}
-		CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != recordEnd);
-	}
-
-	void process_pending_messages() {
-		while (receiveRecord.numBytesSentOrReceived - receiveRecord.dataOffset >= 5) {
-			TLSRecordType recordType = static_cast<TLSRecordType>(receiveRecord.read_byte());
-			u16 version = receiveRecord.read_int16();
-			u16 size = receiveRecord.read_int16();
-			CHECK_CONNECTION_PROBLEM(size > TLSRecord::MAX_RECORD_SIZE);
-			if (receiveRecord.dataOffset + size > receiveRecord.numBytesSentOrReceived) {
-				break;
-			}
-			process_record(recordType, receiveRecord.dataOffset, receiveRecord.dataOffset + size);
-		}
-		if (receiveRecord.dataOffset < receiveRecord.numBytesSentOrReceived) {
-			memmove(receiveRecord.dataBuffer, receiveRecord.dataBuffer + receiveRecord.dataOffset, receiveRecord.numBytesSentOrReceived - receiveRecord.dataOffset);
-			receiveRecord.numBytesSentOrReceived -= receiveRecord.dataOffset;
-			receiveRecord.dataOffset = 0;
-		}
-	}
-
-	// Will only process one record's worth of data at a time.
-	// If it returns true, call it again to possibly process more
-	b32 receive_data() {
-		if (dataLeftInReceiveRecord > 0) {
-			u32 amountToTransfer = min(dataLeftInReceiveRecord, receiveBufferCap - receiveBufferDataEnd);
-			u32 amountToTransferIfBufferWasContiguous = min(dataLeftInReceiveRecord, receiveBufferCap - receiveBufferDataEnd + receiveBufferPos);
-			if (amountToTransferIfBufferWasContiguous > amountToTransfer) {
-				amountToTransfer = amountToTransferIfBufferWasContiguous;
-				memmove(receiveBuffer, receiveBuffer + receiveBufferPos, receiveBufferDataEnd - receiveBufferPos);
-				receiveBufferDataEnd -= receiveBufferPos;
-				receiveBufferPos = 0;
-			}
-			memcpy(receiveBuffer + receiveBufferDataEnd, receiveRecord.dataBuffer + receiveRecord.dataOffset, amountToTransfer);
-			receiveBufferDataEnd += amountToTransfer;
-			receiveRecord.dataOffset += amountToTransfer;
-			dataLeftInReceiveRecord -= amountToTransfer;
-			// Check to make sure we read the whole record
-			if (dataLeftInReceiveRecord == 0) {
-				u32 recordLength = receiveRecord.read_int16(3);
-				u32 recordEnd = 5 + recordLength;
-				while (receiveRecord.dataOffset != recordEnd && receiveRecord.dataBuffer[receiveRecord.dataOffset] == 0) {
-					receiveRecord.dataOffset++;
-				}
-				receiveRecord.dataOffset++;
-				receiveRecord.dataOffset += 16;
-				if (receiveRecord.dataOffset != recordEnd) {
-					serverState = TLS_SERVER_STATE_CLOSE_PENDING;
-					return false;
-				}
-			} else {
-				return true;
-			}
-		}
-		u32 prevBytesReceived = receiveRecord.numBytesSentOrReceived;
-		NetworkTransferResult receiveResult = receiveRecord._receive_all_data(clientTCPConnection);
-		if (receiveResult != NET_TRANSFER_RESULT_COMPLETE) {
-			if (receiveResult != NET_TRANSFER_RESULT_INCOMPLETE) {
-				serverState = TLS_SERVER_STATE_CLOSE_PENDING; 
-			}
-			return false;
-		}
-		b32 possiblyMoreDataToReceive = prevBytesReceived != receiveRecord.numBytesSentOrReceived || prevBytesReceived == TLSRecord::DATA_BUFFER_SIZE;
-		process_pending_messages();
-		return possiblyMoreDataToReceive;
+		shouldSendKeyUpdate = true;
+		shouldKeyUpdate = true;
 	}
 
 	void send_data() {
-		if (serverState != TLS_SERVER_STATE_APPLICATION || (sendBufferPos == 0 && sendRecord.send_completed())) {
+		if (state == TLS_CONNECTION_STATE_CLOSED) {
 			return;
 		}
-		if (!sendRecord.send_completed()) {
-			ConnectionError sendError = sendRecord._send_data(clientTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				CONNECTION_ERROR;
+		if (sendQueueWritePos == sendQueueReadPos && sendRecordPos == sendRecordDataEnd && !shouldKeyUpdate) {
+			// Nothing to send
+			if (state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
+				close_no_alert();
 			}
-		}
-
-		if (!sendRecord.send_completed()) {
 			return;
 		}
-
-		if (shouldSendKeyUpdate) {
-			force_key_update();
-			if (!shouldSendKeyUpdate) {
-				shouldKeyUpdate = false;
-			}
-		}
-
-		if (shouldKeyUpdate) {
-			sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.write_byte(TLS_HANDSHAKE_KEY_UPDATE);
-			sendRecord.write_int24(1);
-			sendRecord.write_byte(shouldSendKeyUpdate ? TLS_KEY_UPDATE_REQUESTED : TLS_KEY_UPDATE_NOT_REQUESTED);
-			sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-			sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, 0);
-			ConnectionError sendError = sendRecord._send_data(clientTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				serverState = TLS_SERVER_STATE_CLOSE_PENDING;
+		if (sendRecordPos != sendRecordDataEnd) {
+			send_to_tcp();
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// TCP send error
 				return;
 			}
-
-			u8 oldTrafficSecret[SHA256_HASH_SIZE];
-			memcpy(oldTrafficSecret, serverTrafficSecret, SHA256_HASH_SIZE);
-			sha256_hkdf_expand_label(serverTrafficSecret, SHA256_HASH_SIZE, oldTrafficSecret, SHA256_HASH_SIZE, "traffic upd", 11, "", 0);
-			sha256_hkdf_expand_label(serverKey, AES_KEY_SIZE_BYTES, serverTrafficSecret, SHA256_HASH_SIZE, "key", 3, "", 0);
-			sha256_hkdf_expand_label(serverIV, AES_GCM_IV_SIZE, serverTrafficSecret, SHA256_HASH_SIZE, "iv", 2, "", 0);
-			serverMessageEncryptCount = 0;
+		}
+		if (sendRecordPos != sendRecordDataEnd) {
+			// Try to send more later
+			return;
+		}
+		if (state != TLS_CONNECTION_STATE_CONNECTED && state != TLS_CONNECTION_STATE_ALERT_PENDING) {
+			return;
+		}
+		sendRecordPos = sendRecordDataEnd = 0;
+		if (shouldKeyUpdate) {
+			BigEndianByteBuf record;
+			record.wrap(sendRecord, sizeof(sendRecord));
+			// Record Header
+			record.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA); // type
+			record.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+			U32 recordLengthPatchPos = record.write_u16(0); // length
+			//struct {
+			//	opaque content[TLSPlaintext.length];
+			//	ContentType type;
+			//	uint8 zeros[length_of_padding];
+			//} TLSInnerPlaintext;
+			//struct {
+			//  HandshakeType msg_type;
+			//  uint24 length;
+			//	KeyUpdate keyUpdate;
+			//} Handshake;
+			//struct {
+			//	KeyUpdateRequest request_update;
+			//} KeyUpdate;
+			record.write_u8(TLS_HANDSHAKE_TYPE_KEY_UPDATE);
+			record.write_u24(1); // One byte for KeyUpdate
+			record.write_u8(shouldSendKeyUpdate ? TLS_KEY_UPDATE_REQUESTED : TLS_KEY_UPDATE_NOT_REQUESTED);
+			record.write_u8(TLS_CONTENT_TYPE_HANDSHAKE);
+			sendRecordDataEnd = record.offset;
+			// No zero padding
+			encrypt_record(0);
+			send_to_tcp();
 			shouldKeyUpdate = false;
 			shouldSendKeyUpdate = false;
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// TCP error
+				return;
+			}
+			const U32 hashLength = SHA256_HASH_SIZE;
+			const U32 keyLength = AES_KEY_SIZE_BYTES;
+			const U32 ivLength = AES_GCM_IV_SIZE;
+
+			Byte* updateTrafficSecret = isServer ? serverTrafficSecret : clientTrafficSecret;
+			Byte* updateKey = isServer ? serverKey : clientKey;
+			Byte* updateIV = isServer ? serverIV : clientIV;
+			Byte oldTrafficSecret[hashLength];
+			memcpy(oldTrafficSecret, updateTrafficSecret, hashLength);
+			sha256_hkdf_expand_label(updateTrafficSecret, hashLength, oldTrafficSecret, hashLength, "traffic upd", 11, "", 0);
+			sha256_hkdf_expand_label(updateKey, keyLength, updateTrafficSecret, hashLength, "key", 3, "", 0);
+			sha256_hkdf_expand_label(updateIV, ivLength, updateTrafficSecret, hashLength, "iv", 2, "", 0);
+			encryptedMessageCounter = 0;
 		}
 
 		while (sendQueueReadPos != sendQueueWritePos) {
-			if (!sendRecord.send_completed()) {
+			if (sendRecordPos != sendRecordDataEnd) {
+				// Try to send the rest later
 				return;
 			}
-			sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-			u32 encodeSize = 0;
-			while (sendQueueReadPos != sendQueueWritePos && encodeSize < TLSRecord::MAX_APPLICATION_DATA_SIZE) {
+			BigEndianByteBuf record;
+			record.wrap(sendRecord, sizeof(sendRecord));
+			// Record Header
+			record.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA); // type
+			record.write_u16(TLS_PROTOCOL_VERSION_1_2); // version
+			record.write_u16(0); // length
+
+			U32 encodeSize = 0;
+			while (sendQueueReadPos != sendQueueWritePos && encodeSize < TLS_MAX_RECORD_DATA_LENGTH) {
 				TLSSendEntry& entry = sendQueue[sendQueueReadPos & sendQueueMask];
-				u32 amountToWrite;
+				U32 amountToWrite;
 				if (entry.resource) {
-					amountToWrite = min(TLSRecord::MAX_APPLICATION_DATA_SIZE - encodeSize, entry.size);
-					sendRecord.write_bytes(entry.resource, amountToWrite);
+					amountToWrite = min(TLS_MAX_RECORD_DATA_LENGTH - encodeSize, entry.size);
+					record.write_bytes(entry.resource, amountToWrite);
 					entry.resource += amountToWrite;
 				} else {
-					entry.size = min(entry.size, sendBufferDataEnd - sendBufferPos);
-					amountToWrite = min(TLSRecord::MAX_APPLICATION_DATA_SIZE - encodeSize, entry.size);
-					sendRecord.write_bytes(sendBuffer + sendBufferPos, amountToWrite);
+					// Sanity clamp to make sure we're not trying to send more data than we have
+					entry.size = min<U32>(entry.size, sendBufferDataEnd - sendBufferPos);
+					amountToWrite = min(TLS_MAX_RECORD_DATA_LENGTH - encodeSize, entry.size);
+					record.write_bytes(sendBuffer + sendBufferPos, amountToWrite);
+					entry.resource += amountToWrite;
 					sendBufferPos += amountToWrite;
 					if (sendBufferPos == sendBufferDataEnd) {
 						sendBufferPos = sendBufferDataEnd = 0;
@@ -1294,45 +2013,122 @@ struct TLSServerClientConnection {
 					sendQueueReadPos++;
 				}
 			}
-			sendRecord.write_byte(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.encrypt(serverKey, serverIV, serverMessageEncryptCount, 0);
-			ConnectionError sendError = sendRecord._send_data(clientTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				serverState = TLS_SERVER_STATE_CLOSE_PENDING;
+			record.write_u8(TLS_CONTENT_TYPE_APPLICATION_DATA);
+			sendRecordDataEnd += record.offset;
+			// No zero padding
+			encrypt_record(0);
+			TLS_DEBUG_LOG("SEND APPLICATION DATA\n", 3);
+			send_to_tcp();
+			if (state == TLS_CONNECTION_STATE_CLOSED) {
+				// TCP failure
 				return;
+			}
+		}
+
+		if (state == TLS_CONNECTION_STATE_ALERT_PENDING) {
+			send_alert_record(closePendingAlert);
+			if (sendRecordPos == sendRecordDataEnd) {
+				close_no_alert();
+			} else {
+				state = TLS_CONNECTION_STATE_CLOSE_PENDING;
 			}
 		}
 	}
 
-	b32 queue_buffer_to_send(void* buffer, u32 length) {
+	U32 received_user_data_size() {
+		return receiveBufferUserDataEnd - receiveBufferUserReadPos;
+	}
+
+	U32 skip_received_bytes(U32 amount) {
+		amount = min(amount, receiveBufferUserDataEnd - receiveBufferUserReadPos);
+		receiveBufferUserReadPos += amount;
+		if (receiveBufferUserReadPos == receiveBufferDataEnd) {
+			receiveBufferUserReadPos = receiveBufferUserDataEnd = receiveBufferDataEnd = 0;
+		}
+		return amount;
+	}
+
+	void discard_received_user_data() {
+		receiveBufferUserReadPos = receiveBufferUserDataEnd;
+		if (receiveBufferUserReadPos == receiveBufferDataEnd) {
+			receiveBufferUserReadPos = receiveBufferUserDataEnd = receiveBufferDataEnd = 0;
+		}
+	}
+
+	void move_send_data_to_beginning_of_buffer() {
+		if (sendBufferPos != 0) {
+			memmove(sendBuffer, sendBuffer + sendBufferPos, sendBufferDataEnd - sendBufferPos);
+			sendBufferDataEnd -= sendBufferPos;
+			sendBufferPos = 0;
+		}
+	}
+
+	void move_receive_data_to_beginning_of_buffer() {
+		if (receiveBufferUserReadPos != 0) {
+			memmove(receiveBuffer, receiveBuffer + receiveBufferUserReadPos, receiveBufferDataEnd - receiveBufferUserReadPos);
+			receiveBufferDataEnd -= receiveBufferUserReadPos;
+			receiveBufferUserDataEnd -= receiveBufferUserReadPos;
+			receiveBufferUserReadPos = 0;
+		}
+	}
+
+	B32 queue_buffer_to_send(const void* buffer, U32 size) {
+		if (state == TLS_CONNECTION_STATE_CLOSED || state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
+			return false;
+		}
+		if (size == 0) {
+			return true;
+		}
 		if (buffer == nullptr && sendQueueWritePos != sendQueueReadPos && sendQueue[(sendQueueWritePos - 1) & sendQueueMask].resource == nullptr) {
-			sendQueue[(sendQueueWritePos - 1) & sendQueueMask].size += length;
+			sendQueue[(sendQueueWritePos - 1) & sendQueueMask].size += size;
 			return true;
 		}
 		if (sendQueueWritePos - sendQueueReadPos < sendQueueCap) {
-			sendQueue[(sendQueueWritePos++) & sendQueueMask] = TLSSendEntry{ reinterpret_cast<u8*>(buffer), length };
+			sendQueue[(sendQueueWritePos++) & sendQueueMask] = TLSSendEntry{ reinterpret_cast<const Byte*>(buffer), size };
 			return true;
 		}
 		return false;
 	}
 
-	TLSServerClientConnection& write_str(const char* str) {
-		if (serverState == TLS_SERVER_STATE_CLOSE_PENDING) {
-			return *this;
+	TLSConnection& write_bytes(const void* bytes, U32 length) {
+		while (length) {
+			if (state == TLS_CONNECTION_STATE_CLOSED || state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
+				return *this;
+			}
+			U32 queuedDataForSend = min<U32>(length, sizeof(sendBuffer) - sendBufferDataEnd);
+			if (queuedDataForSend < length && sendBufferPos > 0) {
+				move_send_data_to_beginning_of_buffer();
+				queuedDataForSend = min<U32>(length, sizeof(sendBuffer) - sendBufferDataEnd);
+			}
+			memcpy(sendBuffer + sendBufferDataEnd, bytes, queuedDataForSend);
+			if (queue_buffer_to_send(nullptr, queuedDataForSend)) {
+				bytes = reinterpret_cast<const Byte*>(bytes) + queuedDataForSend;
+				length -= queuedDataForSend;
+				sendBufferDataEnd += queuedDataForSend;
+			}
+			send_data();
 		}
-		while (str[0] != '\0') {
-			u32 dataQueuedForSend = 0;
-			while (str[0] != '\0' && sendBufferDataEnd < sizeof(sendBuffer)) {
-				sendBuffer[sendBufferDataEnd++] = str[0];
-				str++, dataQueuedForSend++;
+	}
+
+	TLSConnection& write_str(const char* str) {
+		while (*str) {
+			if (state == TLS_CONNECTION_STATE_CLOSED || state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
+				return *this;
+			}
+			U32 queuedDataForSend = 0;
+			while (*str && sendBufferDataEnd < sizeof(sendBuffer)) {
+				sendBuffer[sendBufferDataEnd++] = *str;
+				str++, queuedDataForSend++;
+			}
+			if (!queue_buffer_to_send(nullptr, queuedDataForSend)) {
+				str -= queuedDataForSend;
+				sendBufferDataEnd -= queuedDataForSend;
 			}
 			if (str[0] != '\0') {
 				if (sendBufferPos != 0) {
-					memmove(sendBuffer, sendBuffer + sendBufferPos, sendBufferDataEnd - sendBufferPos);
-					sendBufferDataEnd -= sendBufferPos;
-					sendBufferPos = 0;
+					move_send_data_to_beginning_of_buffer();
 				} else {
-					queue_buffer_to_send(nullptr, dataQueuedForSend);
+					// Try to send data until we have enough space to fit the string (blocking, should never happen in practice)
 					send_data();
 				}
 			}
@@ -1340,867 +2136,40 @@ struct TLSServerClientConnection {
 		return *this;
 	}
 
-	TLSServerClientConnection& patch_content_length(u32 pos, u32 contentStart) {
-		u32 length = sendBufferPos - contentStart;
-		while (length != 0 && sendBuffer[pos] == ' ') {
-			sendBuffer[pos--] = (length % 10) + '0';
+	// HTTP convenience methods
+	TLSConnection& head(const char* directory) {
+		return write_str("HEAD ").write_str(directory).write_str(" HTTP/1.1\r\n");
+	}
+	TLSConnection& post(const char* directory) {
+		return write_str("POST ").write_str(directory).write_str(" HTTP/1.1\r\n");
+	}
+	TLSConnection& get(const char* directory) {
+		return write_str("GET ").write_str(directory).write_str(" HTTP/1.1\r\n");
+	}
+	TLSConnection& field(const char* fieldName, const char* fieldValue) {
+		return write_str(fieldName).write_str(": ").write_str(fieldValue).write_str("\r\n");
+	}
+	TLSConnection& content_length(U32* patchPos) {
+		// This method should not be called if more data will be encoded than space left in the send buffer
+		// Otherwise the empty content length may be flushed and the patch position will be bogus
+		// Use transfer encoding if there needs to be more space
+		write_str("Content-Length:          \r\n");
+		// patchPos gets a sendBufferPos relative pointer to the end of the patch field
+		*patchPos = sendBufferDataEnd - 3 - sendBufferPos;
+		return *this;
+	}
+	TLSConnection& patch_content_length(U32 sendBufferPosRelativePatchPos, U32 length) {
+		U32 patchPos = sendBufferPos + sendBufferPosRelativePatchPos;
+		sendBuffer[patchPos] = '0';
+		while (length != 0) {
+			sendBuffer[patchPos--] = length % 10 + '0';
 			length /= 10;
 		}
 		return *this;
 	}
-
-	void clear_receive_buffer() {
-		receiveBufferPos = 0;
-		receiveBufferDataEnd = 0;
-		dataLeftInReceiveRecord = 0;
-	}
-
-#undef CHECK_CONNECTION_PROBLEM
-#undef CONNECTION_ERROR
-};
-
-// Immediately abort the connection if we find anything that doesn't match
-#ifdef _DEBUG
-#define CONNECTION_ERROR state = TLS_CLIENT_STATE_CLOSED; g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection); return
-#else
-#define CONNECTION_ERROR state = TLS_CLIENT_STATE_CLOSED; g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection); return
-#endif
-#define CHECK_CONNECTION_PROBLEM(cond) if(cond) { CONNECTION_ERROR; }
-
-enum TLSClientState : u32 {
-	TLS_CLIENT_STATE_CLOSED,
-	TLS_CLIENT_STATE_HELLO_SENT,
-	TLS_CLIENT_STATE_HELLO_RECEIVED,
-	TLS_CLIENT_STATE_OPEN
-};
-
-struct TLSClient {
-	char sendBuffer[16 * 1024];
-	char receiveBuffer[16 * 1024];
-	u32 sendBufferPos;
-	u32 receiveBufferPos;
-	u32 sendBufferCap;
-	u32 receiveBufferCap;
-	TLSClientState state;
-
-	u32 serverTCPConnection;
-	u8 clientPrivateKey[32];
-	u8 clientPublicKey[32 + 32];
-	X509SignatureAlgorithm certSignatureAlgorithm;
-	BigInteger certRSAModulusOrECDSAPointX;
-	BigInteger certRSAPublicKeyOrECDSAPointY;
-	u8 masterSecret[SHA256_HASH_SIZE];
-	u8 serverApplicationTrafficSecret[SHA256_HASH_SIZE];
-	u8 serverApplicationKey[AES_KEY_SIZE_BYTES];
-	u8 serverApplicationIV[AES_GCM_IV_SIZE];
-	u8 clientApplicationTrafficSecret[SHA256_HASH_SIZE];
-	u8 clientApplicationKey[AES_KEY_SIZE_BYTES];
-	u8 clientApplicationIV[AES_GCM_IV_SIZE];
-	u64 encryptedMessageCounter;
-	u64 decryptedMessageCounter;
-	b32 shouldKeyUpdate;
-	SHA256 recordsHash;
-
-	TLSRecord sendRecord;
-	TLSRecord receiveRecord;
-	u32 dataLeftInReceiveRecord;
-
-	void send_data() {
-		if (state != TLS_CLIENT_STATE_OPEN || (sendBufferPos == 0 && sendRecord.send_completed())) {
-			return;
-		}
-		if (!sendRecord.send_completed()) {
-			ConnectionError sendError = sendRecord._send_data(serverTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-				state = TLS_CLIENT_STATE_CLOSED;
-				return;
-			}
-		}
-		if (!sendRecord.send_completed()) {
-			return;
-		}
-		if (shouldKeyUpdate) {
-			sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.write_byte(TLS_HANDSHAKE_KEY_UPDATE);
-			sendRecord.write_int24(1);
-			sendRecord.write_byte(TLS_KEY_UPDATE_NOT_REQUESTED);
-			sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-			sendRecord.encrypt(clientApplicationKey, clientApplicationIV, encryptedMessageCounter, 0);
-			ConnectionError sendError = sendRecord._send_data(serverTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-				state = TLS_CLIENT_STATE_CLOSED;
-				return;
-			}
-
-			u8 oldTrafficSecret[SHA256_HASH_SIZE];
-			memcpy(oldTrafficSecret, clientApplicationTrafficSecret, SHA256_HASH_SIZE);
-			sha256_hkdf_expand_label(clientApplicationTrafficSecret, SHA256_HASH_SIZE, oldTrafficSecret, SHA256_HASH_SIZE, "traffic upd", 11, "", 0);
-			sha256_hkdf_expand_label(clientApplicationKey, AES_KEY_SIZE_BYTES, clientApplicationTrafficSecret, SHA256_HASH_SIZE, "key", 3, "", 0);
-			sha256_hkdf_expand_label(clientApplicationIV, AES_GCM_IV_SIZE, clientApplicationTrafficSecret, SHA256_HASH_SIZE, "iv", 2, "", 0);
-			encryptedMessageCounter = 0;
-			shouldKeyUpdate = false;
-		}
-
-		u32 encodeOffset = 0;
-		while (encodeOffset != sendBufferPos) {
-			if (!sendRecord.send_completed()) {
-				sendBufferPos -= encodeOffset;
-				memmove(sendBuffer, sendBuffer + encodeOffset, sendBufferPos);
-				return;
-			}
-			u32 encodeSize = min(TLSRecord::MAX_APPLICATION_DATA_SIZE, sendBufferPos - encodeOffset);
-			sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.write_bytes(sendBuffer + encodeOffset, encodeSize);
-			sendRecord.write_byte(TLS_RECORD_TYPE_APPLICATION_DATA);
-			sendRecord.encrypt(clientApplicationKey, clientApplicationIV, encryptedMessageCounter, 0);
-			ConnectionError sendError = sendRecord._send_data(serverTCPConnection);
-			if (sendError != CONNECTION_ERROR_SUCCESS) {
-				g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-				state = TLS_CLIENT_STATE_CLOSED;
-				return;
-			}
-			encodeOffset += encodeSize;
-		}
-		sendBufferPos = 0;
-	}
-
-	void process_received_record() {
-		if (state == TLS_CLIENT_STATE_OPEN) {
-			TLSRecordType recordType = static_cast<TLSRecordType>(receiveRecord.read_byte());
-			u16 version = receiveRecord.read_int16();
-			u16 recordLength = receiveRecord.read_int16();
-			u32 recordEnd = receiveRecord.dataOffset + recordLength;
-			CHECK_CONNECTION_PROBLEM(recordEnd > (TLSRecord::MAX_RECORD_SIZE + 5));
-
-			if (recordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-				CHECK_CONNECTION_PROBLEM(recordLength < 17);
-				b32 decryptSuccess = receiveRecord.decrypt(serverApplicationKey, serverApplicationIV, decryptedMessageCounter, recordEnd);
-				CHECK_CONNECTION_PROBLEM(!decryptSuccess);
-
-				u32 messagesEnd = recordEnd - 17;
-				u32 zeroPadding = 0;
-				for (; messagesEnd > 0 && receiveRecord.dataBuffer[messagesEnd] == 0; messagesEnd--, zeroPadding++);
-				TLSRecordType realRecordType = static_cast<TLSRecordType>(receiveRecord.dataBuffer[messagesEnd]);
-
-				if (realRecordType == TLS_RECORD_TYPE_ALERT) {
-					TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(receiveRecord.read_byte());
-					TLSAlertDescription alert = static_cast<TLSAlertDescription>(receiveRecord.read_byte());
-					if (alert == TLS_ALERT_CLOSE_NOTIFY) {
-						// Technically wrong, should send a second close notify I think?
-						state = TLS_CLIENT_STATE_CLOSED;
-						g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-					} else {
-						CONNECTION_ERROR;
-					}
-				} else if (realRecordType == TLS_RECORD_TYPE_HANDSHAKE) {
-					CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 4 >= messagesEnd);
-					TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(receiveRecord.read_byte());
-					u32 handshakeLength = receiveRecord.read_int24();
-					u32 handshakeEnd = receiveRecord.dataOffset + handshakeLength;
-					CHECK_CONNECTION_PROBLEM(handshakeEnd > messagesEnd);
-
-					if (handshakeType == TLS_HANDSHAKE_KEY_UPDATE) {
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 1 > handshakeEnd);
-						TLSKeyUpdateRequest updateRequest = static_cast<TLSKeyUpdateRequest>(receiveRecord.read_byte());
-
-						u8 oldTrafficSecret[SHA256_HASH_SIZE];
-						memcpy(oldTrafficSecret, serverApplicationTrafficSecret, SHA256_HASH_SIZE);
-						sha256_hkdf_expand_label(serverApplicationTrafficSecret, SHA256_HASH_SIZE, oldTrafficSecret, SHA256_HASH_SIZE, "traffic upd", 11, "", 0);
-						sha256_hkdf_expand_label(serverApplicationKey, AES_BLOCK_SIZE_BYTES, serverApplicationTrafficSecret, SHA256_HASH_SIZE, "key", 3, "", 0);
-						sha256_hkdf_expand_label(serverApplicationIV, AES_GCM_IV_SIZE, serverApplicationTrafficSecret, SHA256_HASH_SIZE, "iv", 2, "", 0);
-						decryptedMessageCounter = 0;
-
-						shouldKeyUpdate |= updateRequest == TLS_KEY_UPDATE_REQUESTED;
-					} else if (handshakeType == TLS_HANDSHAKE_NEW_SESSION_TICKET) {
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 10 > handshakeEnd);
-						u32 ticketLifetime = receiveRecord.read_int32();
-						u32 ticketAgeAdd = receiveRecord.read_int32();
-
-						u8 nonceDataLength = receiveRecord.read_byte();
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + nonceDataLength > handshakeEnd);
-						receiveRecord.dataOffset += nonceDataLength;
-
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 2 > handshakeEnd);
-						u16 ticketDataLength = receiveRecord.read_int16();
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + ticketDataLength > handshakeEnd);
-						receiveRecord.dataOffset += ticketDataLength;
-
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 2 > handshakeEnd);
-						u16 ticketExtensionDataLength = receiveRecord.read_int16();
-						CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + ticketExtensionDataLength > handshakeEnd);
-						u32 ticketExtensionEnd = receiveRecord.dataOffset + ticketExtensionDataLength;
-						while (receiveRecord.dataOffset < ticketExtensionEnd) {
-							CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + 4 > ticketExtensionEnd);
-							u16 ticketRandomExtensionType = receiveRecord.read_int16();
-							u16 ticketExtensionLength = receiveRecord.read_int16();
-							CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset + ticketExtensionLength > ticketExtensionEnd);
-							receiveRecord.dataOffset += ticketExtensionLength;
-						}
-					} else {
-						CONNECTION_ERROR;
-					}
-				} else if (realRecordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-					u32 dataLength = recordLength - 16 - 1;
-					u32 receivedLength = min(dataLength, receiveBufferCap - receiveBufferPos);
-					memcpy(receiveBuffer + receiveBufferPos, receiveRecord.dataBuffer + receiveRecord.dataOffset, receivedLength);
-					receiveBufferPos += receivedLength;
-					receiveRecord.dataOffset += receivedLength;
-					dataLeftInReceiveRecord = dataLength - receivedLength;
-				} else {
-					CONNECTION_ERROR;
-				}
-
-				if (dataLeftInReceiveRecord == 0) {
-					receiveRecord.dataOffset += zeroPadding;
-					receiveRecord.dataOffset++;
-					receiveRecord.dataOffset += 16;
-				}
-
-			} else if (recordType == TLS_RECORD_TYPE_ALERT) {
-				CHECK_CONNECTION_PROBLEM(recordLength != 2);
-				TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(receiveRecord.read_byte());
-				TLSAlertDescription alert = static_cast<TLSAlertDescription>(receiveRecord.read_byte());
-				CONNECTION_ERROR;
-			} else {
-				CONNECTION_ERROR;
-			}
-
-			CHECK_CONNECTION_PROBLEM(dataLeftInReceiveRecord == 0 && receiveRecord.dataOffset != recordEnd);
-			if (dataLeftInReceiveRecord == 0) {
-				receiveRecord.reset();
-			}
-		} else if (state == TLS_CLIENT_STATE_HELLO_SENT) {
-			TLSRecord& hello = receiveRecord;
-			
-			TLSRecordType recordType = static_cast<TLSRecordType>(hello.read_byte());
-
-			u16 version = hello.read_int16();
-			u16 handshakeMessageLength = hello.read_int16();
-			if (recordType == TLS_RECORD_TYPE_ALERT) {
-				CHECK_CONNECTION_PROBLEM(handshakeMessageLength != 2);
-				TLSAlertLevel alertLevel = static_cast<TLSAlertLevel>(hello.read_byte());
-				TLSAlertDescription alert = static_cast<TLSAlertDescription>(hello.read_byte());
-				CONNECTION_ERROR;
-			}
-			CHECK_CONNECTION_PROBLEM(recordType != TLS_RECORD_TYPE_HANDSHAKE);
-			CHECK_CONNECTION_PROBLEM(handshakeMessageLength < 4);
-
-			TLSHandshakeType handshakeType = static_cast<TLSHandshakeType>(hello.read_byte());
-			CHECK_CONNECTION_PROBLEM(handshakeType != TLS_HANDSHAKE_SERVER_HELLO);
-
-			u32 dataLength = hello.read_int24();
-			CHECK_CONNECTION_PROBLEM(dataLength < (2 + 32 + 1) || dataLength != (handshakeMessageLength - 4));
-			u32 serverHelloEnd = hello.dataOffset + dataLength;
-
-			u16 serverVersion = hello.read_int16();
-
-			u8 serverRandom[32];
-			hello.read_bytes(serverRandom, 32);
-
-			u8 sessionIdLength = hello.read_byte();
-			CHECK_CONNECTION_PROBLEM(serverHelloEnd < (hello.dataOffset + sessionIdLength + 2 + 1 + 2));
-
-			// Ignore session id
-			hello.dataOffset += sessionIdLength;
-
-			TLSCipherSuite cipherSuite = static_cast<TLSCipherSuite>(hello.read_int16());
-			CHECK_CONNECTION_PROBLEM(cipherSuite != TLS_AES_128_GCM_SHA256);
-			u8 compressionMethod = hello.read_byte();
-			CHECK_CONNECTION_PROBLEM(compressionMethod != 0);
-			u16 extensionsLength = hello.read_int16();
-			CHECK_CONNECTION_PROBLEM(serverHelloEnd < (hello.dataOffset + extensionsLength));
-
-			// Two numbers, xy coord on curve
-			u8 serverPublicKey[32 + 32];
-
-			b32 hasSupportedVersionTLS13Ext = false;
-			b32 hasKeyShareExt = false;
-			u32 extensionsEnd = hello.dataOffset + extensionsLength;
-			while (hello.dataOffset != extensionsEnd) {
-				CHECK_CONNECTION_PROBLEM(extensionsEnd < (hello.dataOffset + 4));
-
-				TLSExtension extensionType = static_cast<TLSExtension>(hello.read_int16());
-				u16 extensionLength = hello.read_int16();
-
-				u32 extensionEnd = hello.dataOffset + extensionLength;
-				CHECK_CONNECTION_PROBLEM(extensionsEnd < extensionEnd);
-
-				if (extensionType == TLS_EXTENSION_SUPPORTED_VERSIONS) {
-					for (u32 i = 0; i < extensionLength; i += 2) {
-						u16 tlsVersion = hello.read_int16();
-						if (tlsVersion == 0x0304) {
-							hasSupportedVersionTLS13Ext = true;
-						}
-					}
-				} else if (extensionType == TLS_EXTENSION_KEY_SHARE) {
-					CHECK_CONNECTION_PROBLEM(extensionLength < 3);
-
-					TLSNamedGroup keyExchangeGroup = static_cast<TLSNamedGroup>(hello.read_int16());
-					CHECK_CONNECTION_PROBLEM(keyExchangeGroup != TLS_GROUP_SECP256R1);
-
-					u16 keyLength = hello.read_int16();
-					CHECK_CONNECTION_PROBLEM(keyLength != (32 + 32 + 1) || (hello.dataOffset + keyLength) != extensionEnd);
-					u8 legacyCompression = hello.read_byte();
-					CHECK_CONNECTION_PROBLEM(legacyCompression != 4);
-
-					hello.read_bytes(serverPublicKey, keyLength - 1);
-					hasKeyShareExt = true;
-				} else {
-					hello.dataOffset += extensionLength;
-				}
-				CHECK_CONNECTION_PROBLEM(hello.dataOffset != extensionEnd)
-			}
-			CHECK_CONNECTION_PROBLEM(!hasSupportedVersionTLS13Ext || !hasKeyShareExt);
-			CHECK_CONNECTION_PROBLEM(hello.dataOffset != serverHelloEnd);
-
-
-			// Server hello done, key calc
-			recordsHash.update(hello.dataBuffer + 5, serverHelloEnd - 5);
-			SHA256 tmpHash;
-			tmpHash.copy_from(recordsHash);
-			u8 clientToServerHelloHash[32];
-			tmpHash.digest(clientToServerHelloHash);
-
-			const u32 hashLength = SHA256_HASH_SIZE;
-			const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-			u8 earlySecret[hashLength];
-			u8 zeros[hashLength]{};
-			u8 hashedZeros[hashLength]{};
-			u8 emptyHash[hashLength];
-			sha256(hashedZeros, zeros, hashLength);
-			sha256(emptyHash, "", 0);
-
-			// early secret
-			sha256_hkdf_extract(earlySecret, "", 0, zeros, hashLength);
-			// handshake secret
-			u8 derivedSecret[hashLength];
-			sha256_derive_secret(derivedSecret, hashLength, earlySecret, hashLength, "derived", 7, emptyHash, hashLength);
-			u8 sharedSecret[hashLength];
-
-			b32 keyCalcSuccess = secp256r1_ecdhe(sharedSecret, serverPublicKey, serverPublicKey + 32, clientPrivateKey);
-			CHECK_CONNECTION_PROBLEM(!keyCalcSuccess);
-
-			// Aliasing these so we don't waste memory for no reason
-			u8* clientHandshakeKey = clientApplicationKey;
-			u8* serverHandshakeKey = serverApplicationKey;
-			u8* clientHandshakeIV = clientApplicationIV;
-			u8* serverHandshakeIV = serverApplicationIV;
-			u8* clientHandshakeTrafficSecret = clientApplicationTrafficSecret;
-			u8* serverHandshakeTrafficSecret = serverApplicationTrafficSecret;
-
-			u8 handshakeSecret[hashLength];
-			sha256_hkdf_extract(handshakeSecret, derivedSecret, hashLength, sharedSecret, 32);
-			sha256_derive_secret(clientHandshakeTrafficSecret, hashLength, handshakeSecret, hashLength, "c hs traffic", 12, clientToServerHelloHash, hashLength);
-			sha256_derive_secret(serverHandshakeTrafficSecret, hashLength, handshakeSecret, hashLength, "s hs traffic", 12, clientToServerHelloHash, hashLength);
-
-			
-			sha256_hkdf_expand_label(clientHandshakeKey, encryptionKeySize, clientHandshakeTrafficSecret, hashLength, "key", 3, "", 0);
-			sha256_hkdf_expand_label(serverHandshakeKey, encryptionKeySize, serverHandshakeTrafficSecret, hashLength, "key", 3, "", 0);
-			sha256_hkdf_expand_label(clientHandshakeIV, 12, clientHandshakeTrafficSecret, hashLength, "iv", 2, "", 0);
-			sha256_hkdf_expand_label(serverHandshakeIV, 12, serverHandshakeTrafficSecret, hashLength, "iv", 2, "", 0);
-
-			// master secret
-			sha256_derive_secret(derivedSecret, hashLength, handshakeSecret, hashLength, "derived", 7, emptyHash, hashLength);
-			sha256_hkdf_extract(masterSecret, derivedSecret, hashLength, zeros, hashLength);
-
-			decryptedMessageCounter = 0;
-			receiveRecord.reset();
-			state = TLS_CLIENT_STATE_HELLO_RECEIVED;
-		} else if (state == TLS_CLIENT_STATE_HELLO_RECEIVED) {
-			TLSRecord& nextRecord = receiveRecord;
-
-			const u32 hashLength = SHA256_HASH_SIZE;
-			const u32 encryptionKeySize = AES_KEY_SIZE_BYTES;
-
-			// Aliasing these so we don't waste memory for no reason
-			u8* clientHandshakeKey = clientApplicationKey;
-			u8* serverHandshakeKey = serverApplicationKey;
-			u8* clientHandshakeIV = clientApplicationIV;
-			u8* serverHandshakeIV = serverApplicationIV;
-			u8* clientHandshakeTrafficSecret = clientApplicationTrafficSecret;
-			u8* serverHandshakeTrafficSecret = serverApplicationTrafficSecret;
-
-			SHA256 tmpHash;
-
-			TLSRecordType recordType = static_cast<TLSRecordType>(nextRecord.read_byte());
-			u16 version = nextRecord.read_int16();
-			u16 recordLength = nextRecord.read_int16();
-			u32 recordEnd = nextRecord.dataOffset + recordLength;
-			CHECK_CONNECTION_PROBLEM(recordEnd >= (TLSRecord::MAX_RECORD_SIZE + 5));
-
-			if (recordType == TLS_RECORD_TYPE_CHANGE_CIPHER_SPEC) {
-				CHECK_CONNECTION_PROBLEM(recordLength != 1);
-				CHECK_CONNECTION_PROBLEM(nextRecord.read_byte() != 1);
-			} else if (recordType == TLS_RECORD_TYPE_APPLICATION_DATA) {
-				CHECK_CONNECTION_PROBLEM(recordLength < 17);
-
-				b32 serverHandshakeFinished = false;
-
-				u8 iv[AES_GCM_IV_SIZE];
-				memcpy(iv, serverHandshakeIV, AES_GCM_IV_SIZE);
-				for (u32 i = 0; i < 8; i++) {
-					iv[i + 4] ^= (decryptedMessageCounter >> ((7 - i) * 8)) & 0xFF;
-				}
-				decryptedMessageCounter++;
-				AESGCM aes;
-				aes.init(serverHandshakeKey, iv);
-				b32 successfulDecrypt = aes.decrypt(nextRecord.dataBuffer + 5, nextRecord.dataBuffer + (recordEnd - 16), nextRecord.dataBuffer + 5, recordLength - 16, nextRecord.dataBuffer, 5);
-				CHECK_CONNECTION_PROBLEM(!successfulDecrypt);
-
-				u32 messagesEnd = recordEnd - 17;
-				u32 zeroPadding = 0;
-				for (; messagesEnd > 0 && nextRecord.dataBuffer[messagesEnd] == 0; messagesEnd--, zeroPadding++);
-				TLSRecordType realRecordType = static_cast<TLSRecordType>(nextRecord.dataBuffer[messagesEnd]);
-				CHECK_CONNECTION_PROBLEM(realRecordType != TLS_RECORD_TYPE_HANDSHAKE);
-
-				while (nextRecord.dataOffset < messagesEnd) {
-					TLSHandshakeType hanshakeMessageType = static_cast<TLSHandshakeType>(nextRecord.read_byte());
-					u32 dataLength = nextRecord.read_int24();
-					u32 dataEnd = nextRecord.dataOffset + dataLength;
-					CHECK_CONNECTION_PROBLEM((recordEnd - 16) < dataEnd);
-					if (hanshakeMessageType == TLS_HANDSHAKE_ENCRYPTED_EXTENSIONS) {
-						CHECK_CONNECTION_PROBLEM(dataLength < 2);
-						u16 encryptedExtensionEnd = nextRecord.read_int16();
-						encryptedExtensionEnd += nextRecord.dataOffset;
-						CHECK_CONNECTION_PROBLEM(dataEnd < encryptedExtensionEnd);
-
-						while (nextRecord.dataOffset != encryptedExtensionEnd) {
-							CHECK_CONNECTION_PROBLEM(encryptedExtensionEnd < (nextRecord.dataOffset + 4));
-
-							TLSExtension extensionType = static_cast<TLSExtension>(nextRecord.read_int16());
-							u16 extensionLength = nextRecord.read_int16();
-
-							u32 extensionEnd = nextRecord.dataOffset + extensionLength;
-							CHECK_CONNECTION_PROBLEM(encryptedExtensionEnd < extensionEnd);
-
-							nextRecord.dataOffset += extensionLength;
-						}
-					} else if (hanshakeMessageType == TLS_HANDSHAKE_CERTIFICATE) {
-						CHECK_CONNECTION_PROBLEM(dataLength < 1);
-						u8 contextLength = nextRecord.read_byte();
-						// contextLength must be 0 unless used for post handshake authentication
-						CHECK_CONNECTION_PROBLEM(contextLength != 0);
-						//CHECK_CONNECTION_PROBLEM(dataEnd < (nextRecord.dataOffset + contextLength));
-						//nextRecord.dataOffset += contextLength;
-
-						CHECK_CONNECTION_PROBLEM(dataEnd < (nextRecord.dataOffset + 3));
-						u32 certificatesLength = nextRecord.read_int24();
-						u32 certificatesEnd = nextRecord.dataOffset + certificatesLength;
-						CHECK_CONNECTION_PROBLEM(dataEnd < (nextRecord.dataOffset + certificatesLength));
-
-						u32 certLength = nextRecord.read_int24();
-						CHECK_CONNECTION_PROBLEM(certificatesEnd < (nextRecord.dataOffset + certLength));
-						void* cert = nextRecord.dataBuffer + nextRecord.dataOffset;
-						void* publicKey = nullptr;
-						u32 publicKeyLength = 0;
-						b32 certParseSuccess = parse_asn1_der_cert(&certSignatureAlgorithm, &publicKey, &publicKeyLength, cert, certLength);
-						CHECK_CONNECTION_PROBLEM(!certParseSuccess);
-
-						if (certSignatureAlgorithm == X509_SIGNATURE_RSA_GENERIC || certSignatureAlgorithm == X509_SIGNATURE_RSA_PSS) {
-							ASN1Reader keyExtractor{ publicKey, publicKeyLength };
-							u32 keyStructEnd = keyExtractor.read_expected_identifier_end(ASN1_CLASS_UNIVERSAL, ASN1_SEQUENCE_SEQUENCE_OF);
-							keyExtractor.read_big_integer_tag(certRSAModulusOrECDSAPointX, keyStructEnd);
-							keyExtractor.read_big_integer_tag(certRSAPublicKeyOrECDSAPointY, keyStructEnd);
-							keyExtractor.verify_section_complete(keyStructEnd);
-							CHECK_CONNECTION_PROBLEM(keyExtractor.errored);
-						} else if (certSignatureAlgorithm == X509_SIGNATURE_EC_SECP256R1) {
-							b32 loadSuccess = secp256r1_load_uncompressed(certRSAModulusOrECDSAPointX, certRSAPublicKeyOrECDSAPointY, publicKey, publicKeyLength);
-							CHECK_CONNECTION_PROBLEM(!loadSuccess);
-						} else {
-							CHECK_CONNECTION_PROBLEM(true);
-						}
-
-						nextRecord.dataOffset = certificatesEnd;
-					} else if (hanshakeMessageType == TLS_HANDSHAKE_CERTIFICATE_VERIFY) {
-						CHECK_CONNECTION_PROBLEM(dataLength < 4);
-						TLSSignatureScheme signatureScheme = static_cast<TLSSignatureScheme>(nextRecord.read_int16());
-						u16 signatureDataLength = nextRecord.read_int16();
-						void* signature = nextRecord.dataBuffer + nextRecord.dataOffset;
-						CHECK_CONNECTION_PROBLEM(dataEnd < (nextRecord.dataOffset + signatureDataLength));
-
-						const char* contextString = "TLS 1.3, server CertificateVerify";
-						constexpr u32 contextStringLength = 33;
-						constexpr u32 signatureContextLength = 64 + contextStringLength + 1 + hashLength;
-						u8 signatureContext[signatureContextLength];
-						memset(signatureContext, 0x20, 64);
-						memcpy(signatureContext + 64, contextString, contextStringLength);
-						signatureContext[64 + contextStringLength] = 0x00;
-						tmpHash.copy_from(recordsHash);
-						tmpHash.digest(signatureContext + 64 + contextStringLength + 1);
-
-						b32 certificateVerified = false;
-						if (certSignatureAlgorithm == X509_SIGNATURE_RSA_GENERIC || certSignatureAlgorithm == X509_SIGNATURE_RSA_PSS) {
-							if (certSignatureAlgorithm == X509_SIGNATURE_RSA_GENERIC) {
-								// rsaEncryption is generic, any RSA can use its key
-								CHECK_CONNECTION_PROBLEM(signatureScheme != TLS_RSA_PKCS1_SHA256 && signatureScheme != TLS_RSS_PSS_RSAE_SHA256 && signatureScheme != TLS_RSS_PSS_PSS_SHA256);
-							} else {
-								// rsassa-pss can only be used for the PSS algorithm
-								CHECK_CONNECTION_PROBLEM(signatureScheme != TLS_RSS_PSS_RSAE_SHA256 && signatureScheme != TLS_RSS_PSS_PSS_SHA256);
-							}
-							u32 rsaBits = signatureDataLength * 8;
-							CHECK_CONNECTION_PROBLEM(BigInteger::bitlength(certRSAModulusOrECDSAPointX) != rsaBits);
-							// TLS 1.3 requires RSA >= 2048
-							CHECK_CONNECTION_PROBLEM(rsaBits < 2048);
-							// I only support up to RSA 4096 for now
-							CHECK_CONNECTION_PROBLEM(rsaBits > 4096);
-							if (signatureScheme == TLS_RSA_PKCS1_SHA256) {
-								certificateVerified = rsassa_pkcs1_verify_sha256(signature, signatureContext, signatureContextLength, certRSAPublicKeyOrECDSAPointY, certRSAModulusOrECDSAPointX, rsaBits);
-							} else if (signatureScheme == TLS_RSS_PSS_RSAE_SHA256 || signatureScheme == TLS_RSS_PSS_PSS_SHA256) {
-								// These two are the same signature/verification algorithm, the only difference is whether the key is stored under the rsaEncryption or rsassa-pss oid in the cert
-								certificateVerified = rsassa_pss_verify_sha256(signature, signatureContext, signatureContextLength, certRSAPublicKeyOrECDSAPointY, certRSAModulusOrECDSAPointX, rsaBits);
-							}
-						} else if (certSignatureAlgorithm == X509_SIGNATURE_EC_SECP256R1) {
-							CHECK_CONNECTION_PROBLEM(signatureScheme != TLS_ECDSA_SECP256R1_SHA256);
-							BigInteger signatureR; signatureR.init(64);
-							BigInteger signatureS; signatureS.init(64);
-							if (ecdsa_load_asn1(signatureR, signatureS, signature, signatureDataLength)) {
-								certificateVerified = ecdsa_verify_secpr1_sha256(signatureR, signatureS, signatureContext, signatureContextLength, certRSAModulusOrECDSAPointX, certRSAPublicKeyOrECDSAPointY);
-							}
-						} else {
-							CHECK_CONNECTION_PROBLEM(true);
-						}
-
-						CHECK_CONNECTION_PROBLEM(!certificateVerified);
-						// Great! We've proved that the messages really have come from the same place as the certificate!
-						// This means nothing since we haven't verified the certificate itself, but whatever.
-						// I really don't feel like finding out how to deal with certificate authorities.
-
-						nextRecord.dataOffset += signatureDataLength;
-					} else if (hanshakeMessageType == TLS_HANDSHAKE_FINISHED) {
-						CHECK_CONNECTION_PROBLEM(dataLength != hashLength);
-
-						u8 serverHandshakeVerify[hashLength];
-						nextRecord.read_bytes(serverHandshakeVerify, hashLength);
-
-						u8 helloToNowHash[hashLength];
-						tmpHash.copy_from(recordsHash);
-						tmpHash.digest(helloToNowHash);
-
-						u8 finishedKey[hashLength];
-						sha256_hkdf_expand_label(finishedKey, hashLength, serverHandshakeTrafficSecret, hashLength, "finished", 8, "", 0);
-
-						u8 clientHandshakeVerify[hashLength];
-						sha256_hmac(clientHandshakeVerify, finishedKey, hashLength, helloToNowHash, hashLength);
-
-						CHECK_CONNECTION_PROBLEM(memcmp(serverHandshakeVerify, clientHandshakeVerify, hashLength) != 0);
-						serverHandshakeFinished = true;
-					} else {
-						CONNECTION_ERROR;
-					}
-					CHECK_CONNECTION_PROBLEM(nextRecord.dataOffset != dataEnd);
-
-					recordsHash.update(nextRecord.dataBuffer + (nextRecord.dataOffset - dataLength - 4), dataLength + 4);
-				}
-
-				CHECK_CONNECTION_PROBLEM(nextRecord.dataOffset != messagesEnd);
-				nextRecord.dataOffset += zeroPadding;
-
-				// Skip record type and auth tag
-				nextRecord.dataOffset++;
-				nextRecord.dataOffset += 16;
-
-				if (serverHandshakeFinished) {
-					// Application data key derivation
-					u8 helloToServerFinishedHash[hashLength];
-					tmpHash.copy_from(recordsHash);
-					tmpHash.digest(helloToServerFinishedHash);
-
-					sha256_hkdf_expand_label(serverApplicationTrafficSecret, hashLength, masterSecret, hashLength, "s ap traffic", 12, helloToServerFinishedHash, hashLength);
-					sha256_hkdf_expand_label(serverApplicationKey, encryptionKeySize, serverApplicationTrafficSecret, hashLength, "key", 3, "", 0);
-					sha256_hkdf_expand_label(serverApplicationIV, AES_GCM_IV_SIZE, serverApplicationTrafficSecret, hashLength, "iv", 2, "", 0);
-
-					u8 oldClientTrafficSecret[SHA256_HASH_SIZE];
-					u8 oldClientIV[AES_GCM_IV_SIZE];
-					u8 oldClientKey[AES_KEY_SIZE_BYTES];
-					memcpy(oldClientTrafficSecret, clientHandshakeTrafficSecret, SHA256_HASH_SIZE);
-					memcpy(oldClientIV, clientHandshakeIV, AES_GCM_IV_SIZE);
-					memcpy(oldClientKey, clientHandshakeKey, AES_KEY_SIZE_BYTES);
-					sha256_hkdf_expand_label(clientApplicationTrafficSecret, hashLength, masterSecret, hashLength, "c ap traffic", 12, helloToServerFinishedHash, hashLength);
-					sha256_hkdf_expand_label(clientApplicationKey, encryptionKeySize, clientApplicationTrafficSecret, hashLength, "key", 3, "", 0);
-					sha256_hkdf_expand_label(clientApplicationIV, AES_GCM_IV_SIZE, clientApplicationTrafficSecret, hashLength, "iv", 2, "", 0);
-
-					// Send client data back
-					sendRecord.init(TLS_RECORD_TYPE_CHANGE_CIPHER_SPEC);
-					sendRecord.patch_int16(1, 3);
-					sendRecord.write_byte(1);
-					ConnectionError sendError = sendRecord._send_data(serverTCPConnection);
-					CHECK_CONNECTION_PROBLEM(sendError != CONNECTION_ERROR_SUCCESS);
-					CHECK_CONNECTION_PROBLEM(sendRecord.numBytesSentOrReceived != sendRecord.dataOffset);
-
-					sendRecord.reset();
-					sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-					sendRecord.write_byte(TLS_HANDSHAKE_FINISHED);
-					sendRecord.write_int24(hashLength);
-					u8 finishedKey[hashLength];
-					sha256_hkdf_expand_label(finishedKey, hashLength, oldClientTrafficSecret, hashLength, "finished", 8, "", 0);
-					u8 verifyData[hashLength];
-					sha256_hmac(verifyData, finishedKey, hashLength, helloToServerFinishedHash, hashLength);
-					sendRecord.write_bytes(verifyData, hashLength);
-					sendRecord.write_byte(TLS_RECORD_TYPE_HANDSHAKE);
-					sendRecord.patch_int16(sendRecord.dataOffset - 5 + 16, 3);
-
-					aes.init(oldClientKey, oldClientIV);
-					aes.encrypt(sendRecord.dataBuffer + sendRecord.dataOffset, sendRecord.dataBuffer + 5, sendRecord.dataBuffer + 5, sendRecord.dataOffset - 5, sendRecord.dataBuffer, 5);
-					sendRecord.dataOffset += 16;
-					
-					sendError = sendRecord._send_data(serverTCPConnection);
-					CHECK_CONNECTION_PROBLEM(sendError != CONNECTION_ERROR_SUCCESS);
-					CHECK_CONNECTION_PROBLEM(sendRecord.numBytesSentOrReceived != sendRecord.dataOffset);
-
-					sendRecord.reset();
-					encryptedMessageCounter = 0;
-					decryptedMessageCounter = 0;
-					state = TLS_CLIENT_STATE_OPEN;
-				}
-			}
-		}
-	}
-
-	// Will receive at most one record
-	// If it returns true, call it again to possibly process more data
-	b32 receive_data() {
-		if (state == TLS_CLIENT_STATE_CLOSED) {
-			return false;
-		}
-		if (dataLeftInReceiveRecord > 0) {
-			u32 amountToTransfer = min(dataLeftInReceiveRecord, receiveBufferCap - receiveBufferPos);
-			memcpy(receiveBuffer + receiveBufferPos, receiveRecord.dataBuffer + receiveRecord.dataOffset, amountToTransfer);
-			receiveBufferPos += amountToTransfer;
-			receiveRecord.dataOffset += amountToTransfer;
-			dataLeftInReceiveRecord -= amountToTransfer;
-			// Check to make sure we read the whole record
-			if (dataLeftInReceiveRecord == 0) {
-				u32 recordLength = receiveRecord.read_int16(3);
-				u32 recordEnd = 5 + recordLength;
-				while (receiveRecord.dataOffset != recordEnd && receiveRecord.dataBuffer[receiveRecord.dataOffset] == 0) {
-					receiveRecord.dataOffset++;
-				}
-				receiveRecord.dataOffset++;
-				receiveRecord.dataOffset += 16;
-				CHECK_CONNECTION_PROBLEM(receiveRecord.dataOffset != recordEnd);
-				if (receiveRecord.dataOffset != recordEnd) {
-					state = TLS_CLIENT_STATE_CLOSED;
-					g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-					return false;
-				}
-			} else {
-				return true;
-			}
-		}
-
-		u32 prevBytesReceived = receiveRecord.numBytesSentOrReceived;
-		NetworkTransferResult receiveResult = receiveRecord._receive_data(serverTCPConnection);
-		if (receiveResult != NET_TRANSFER_RESULT_COMPLETE) {
-			if (receiveResult != NET_TRANSFER_RESULT_INCOMPLETE) {
-				state = TLS_CLIENT_STATE_CLOSED;
-				g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-			}
-			return false;
-		}
-		b32 possiblyMoreDataToReceive = prevBytesReceived != receiveRecord.numBytesSentOrReceived || prevBytesReceived == TLSRecord::DATA_BUFFER_SIZE;
-		process_received_record();
-		return possiblyMoreDataToReceive;
-	}
-
-	TLSClient& write_str(const char* str) {
-		if (state == TLS_CLIENT_STATE_CLOSED) {
-			return *this;
-		}
-		while (str[0] != '\0') {
-			while (str[0] != '\0' && sendBufferPos < sizeof(sendBuffer)) {
-				sendBuffer[sendBufferPos++] = str[0];
-				str++;
-			}
-			if (str[0] != '\0') {
-				send_data();
-			}
-		}
-		return *this;
-	}
-
-	TLSClient& patch_content_length(u32 pos, u32 contentStart) {
-		u32 length = sendBufferPos - contentStart;
-		while (length != 0 && sendBuffer[pos] == ' ') {
-			sendBuffer[pos--] = (length % 10) + '0';
-			length /= 10;
-		}
-		return *this;
-	}
-
-	void clear_receive_buffer() {
-		receiveBufferPos = 0;
-		dataLeftInReceiveRecord = 0;
-	}
-
-	void close() {
-		if (state == TLS_CLIENT_STATE_CLOSED) {
-			return;
-		}
-		sendRecord.init(TLS_RECORD_TYPE_APPLICATION_DATA);
-		sendRecord.write_byte(TLS_ALERT_LEVEL_WARNING);
-		sendRecord.write_byte(TLS_ALERT_CLOSE_NOTIFY);
-		sendRecord.write_byte(TLS_RECORD_TYPE_ALERT);
-		sendRecord.encrypt(clientApplicationIV, clientApplicationIV, encryptedMessageCounter, 0);
-		sendRecord._send_data(serverTCPConnection);
-
-		g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-		state = TLS_CLIENT_STATE_CLOSED;
-	}
-
-	b32 connect(const char* remoteServerName, u32 remoteIP, u16 localPort) {
-		sendBufferPos = 0;
-		receiveBufferPos = 0;
-		sendBufferCap = sizeof(sendBuffer);
-		receiveBufferCap = sizeof(receiveBuffer);
-		dataLeftInReceiveRecord = 0;
-		state = TLS_CLIENT_STATE_CLOSED;
-		shouldKeyUpdate = false;
-		sendRecord.reset();
-		receiveRecord.reset();
-		certSignatureAlgorithm = X509_SIGNATURE_EC_IMPLICITLY_CA;
-		certRSAModulusOrECDSAPointX.init(64);
-		certRSAPublicKeyOrECDSAPointY.init(64);
-
-		serverTCPConnection = g_syscallProc(SYSCALL_TCP_OPEN, remoteIP | (u64(443) << 32) | (u64(localPort) << 48));
-
-		if (serverTCPConnection == TCP_CONNECTION_BLOCK_INVALID_IDX) {
-			return false;
-		}
-
-		Keccak random;
-		random.make_secure_random();
-
-		secp256r1_generate_keypair(random, clientPublicKey, clientPrivateKey);
-
-		SHA256 tmpHash;
-		recordsHash.init();
-
-		TLSRecord& hello = sendRecord;
-		hello.init(TLS_RECORD_TYPE_HANDSHAKE);
-		hello.write_byte(TLS_HANDSHAKE_CLIENT_HELLO);
-		u32 lengthPos = hello.dataOffset;
-		hello.write_int24(0);
-		// Write TLS 1.2 for compatibility
-		hello.write_int16(0x0303);
-		// Random field
-		random.squeeze(hello.dataBuffer + hello.dataOffset, 32);
-		hello.dataOffset += 32;
-		// More compatibility, write a random 32 byte legacy session id
-		hello.write_byte(32);
-		random.squeeze(hello.dataBuffer + hello.dataOffset, 32);
-		hello.dataOffset += 32;
-		// Write list of cipher suites
-		hello.write_int16(2);
-		hello.write_int16(TLS_AES_128_GCM_SHA256);
-		// Write legacy compression method of null
-		hello.write_byte(1);
-		hello.write_byte(0);
-
-		// Write extensions
-		u32 extensionLengthPos = hello.dataOffset;
-		hello.write_int16(0);
-
-		if (remoteServerName) {
-			hello.write_int16(TLS_EXTENSION_SERVER_NAME);
-			u32 serverNameLengthPos = hello.dataOffset;
-			hello.write_int16(0);
-			hello.write_int16(0);
-			hello.write_byte(TLS_SERVER_NAME_HOST_NAME);
-			u16 hostLength = strlen(remoteServerName);
-			hello.write_int16(hostLength);
-			hello.write_bytes(remoteServerName, hostLength);
-			// Backpatch length fields
-			u32 len = hello.dataOffset - serverNameLengthPos - 2;
-			hello.patch_int16(hello.dataOffset - serverNameLengthPos - 2, serverNameLengthPos);
-			hello.patch_int16(hello.dataOffset - serverNameLengthPos - 4, serverNameLengthPos + 2);
-		}
-
-		// This is the one that tells the other party we're actually a TLS 1.3 connection
-		hello.write_int16(TLS_EXTENSION_SUPPORTED_VERSIONS);
-		// 3 bytes of extension data
-		hello.write_int16(3);
-		// 2 bytes of versions
-		hello.write_byte(2);
-		// TLS 1.3 version number
-		hello.write_int16(0x0304);
-
-		hello.write_int16(TLS_EXTENSION_SUPPORTED_GROUPS);
-		u32 supportedGroupsLengthPos = hello.dataOffset;
-		hello.write_int16(0);
-		hello.write_int16(0);
-		// Only support secp256r1 group
-		hello.write_int16(TLS_GROUP_SECP256R1);
-		// Backpatch length fields
-		hello.patch_int16(hello.dataOffset - supportedGroupsLengthPos - 2, supportedGroupsLengthPos);
-		hello.patch_int16(hello.dataOffset - supportedGroupsLengthPos - 4, supportedGroupsLengthPos + 2);
-
-		hello.write_int16(TLS_EXTENSION_SIGNATURE_ALGORITHMS);
-		u32 signatureAlgorithmLengthPos = hello.dataOffset;
-		hello.write_int16(0);
-		hello.write_int16(0);
-		// Write supported signature algorithms
-		hello.write_int16(TLS_RSA_PKCS1_SHA256);
-		hello.write_int16(TLS_RSS_PSS_RSAE_SHA256);
-		hello.write_int16(TLS_RSS_PSS_PSS_SHA256);
-		hello.write_int16(TLS_ECDSA_SECP256R1_SHA256);
-		// Backpatch length fields
-		hello.patch_int16(hello.dataOffset - signatureAlgorithmLengthPos - 2, signatureAlgorithmLengthPos);
-		hello.patch_int16(hello.dataOffset - signatureAlgorithmLengthPos - 4, signatureAlgorithmLengthPos + 2);
-
-		hello.write_int16(TLS_EXTENSION_KEY_SHARE);
-		u32 keyShareLengthPos = hello.dataOffset;
-		hello.write_int16(0);
-		hello.write_int16(0);
-		// Write key share
-		hello.write_int16(TLS_GROUP_SECP256R1);
-		// 32 bytes per curve coordinates, x and y
-		hello.write_int16(1 + 32 + 32);
-		// Write public key
-		hello.write_byte(4);
-		hello.write_bytes(clientPublicKey, 32 + 32);
-		// Backpatch length fields
-		hello.patch_int16(hello.dataOffset - keyShareLengthPos - 2, keyShareLengthPos);
-		hello.patch_int16(hello.dataOffset - keyShareLengthPos - 4, keyShareLengthPos + 2);
-
-		// Backpatch length fields
-		hello.patch_int16(hello.dataOffset - extensionLengthPos - 2, extensionLengthPos);
-		hello.write_int24(hello.dataOffset - lengthPos - 3, lengthPos);
-		hello.patch_int16(hello.dataOffset - 5, 3);
-
-		// Client hello done
-		recordsHash.update(hello.dataBuffer + 5, hello.dataOffset - 5);
-		tmpHash.copy_from(recordsHash);
-		u8 clientHelloHash[32];
-		tmpHash.digest(clientHelloHash);
-
-		ConnectionError helloSendErr = hello._send_data(serverTCPConnection);
-		if (helloSendErr != CONNECTION_ERROR_SUCCESS) {
-			g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-			return false;
-		}
-		if (hello.numBytesSentOrReceived != hello.dataOffset) {
-			g_syscallProc(SYSCALL_TCP_CLOSE, serverTCPConnection);
-			return false;
-		}
-
-		sendRecord.reset();
-		state = TLS_CLIENT_STATE_HELLO_SENT;
-		return true;
-	}
-
-	b32 connect(const char* serverName, u16 port) {
-		SyscallDNSLookupArgs dnsLookupArgs{};
-		strcpy(dnsLookupArgs.name, serverName);
-		u64 dnsResult = g_syscallProc(SYSCALL_DNS_LOOKUP_BLOCKING, reinterpret_cast<u64>(&dnsLookupArgs));
-		if (((dnsResult >> 32) &0b11) != DNS_LOOKUP_RESULT_SUCCESS){
-			return false;
-		}
-		u32 dnsResultIP = dnsResult & 0xFFFFFFFF;
-
-		connect(serverName, dnsResultIP, port);
+	TLSConnection& end_http_header() {
+		return write_str("\r\n");
 	}
 };
-#undef CHECK_CONNECTION_PROBLEM
-#undef CONNECTION_ERROR
+
+#undef TLS_VERIFY_ALERT_RETURN
