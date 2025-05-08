@@ -120,7 +120,7 @@ void init_blog() {
 	blog_add_entry("/Posts.html"a, R"(
 <h1>List of Blog Posts</h1>
 <p><a href="/TestPost.html">Test Post</a></p>
-<p><a href="/TestPost.html">Building This Blog, Part 1</a></p>
+<p><a href="/BuildingThisBlog.html">Building This Blog, Part 1</a></p>
 )"a);
 	blog_add_entry("/About.html"a, R"(
 <h1>Welcome to the DrillEngine Blog</h1>
