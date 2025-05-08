@@ -1,46 +1,67 @@
-R"(
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<title>DrillEngine</title>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-* {
-	margin: 0;
-	font-family: -apple-system,system-ui,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-	color: #C9D1D9;
-}
-header {
-	background-color: #7F0000;
-	font-family: 'Oxygen-Sans',sans-serif;
-	text-align: center;
-	padding: 5px;
-	font-size: 25px;
-}
-body {
-	background-color: #121212;
-	font-size: 14px;
-	h1, h2, h3 {
-		text-align: center;
-		line-height: 1.2;
-		margin-bottom: 10px;
-	}
-}
-</style>
+	<title>DrillEngine</title>
+	<meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		* {
+			margin: 0;
+			font-family: -apple-system,system-ui,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+			color: #C9D1D9;
+		}
+		header {
+			text-align: center;
+			font-size: 30px;
+		}
+		body {
+			background-color: #121212;
+			font-size: 14px;
+
+		}
+		.content {
+			background-color: #282828;
+			padding: 32px;
+			padding-top: 20px;
+			width: 600px;
+			margin-left: auto;
+			margin-right: auto;
+			line-height: 22px;
+		}
+		.content a:link {
+			color: #0077AA;
+		}
+		.content a:visited {
+			color: #685098;
+		}
+		h1, h2, h3 {
+			text-align: center;
+			line-height: 1.2;
+			margin-bottom: 10px;
+			margin-top: 10px;
+		}
+		p {
+			margin-bottom: 5px;
+		}
+	</style>
 </head>
 
 <body>
 	<header>
-		<h2>DrillEngine Blog</h2>
+		<h2 style="background-color: #6F1010; margin-top: 0; margin-bottom: 0; padding-top: 10px; padding-bottom: 20px"><a href="/" style="text-decoration: none; padding: 5px">DrillEngine Blog</a></h2>
+		<div style="background-color: #3F1818; margin-left: auto; margin-right: auto; font-size: 15px;">
+			<h2 style="display: inline-block"><a href="/" style="text-decoration: none; padding: 10px">Home</a></h2>
+			<h2 style="display: inline-block"><a href="/" style="text-decoration: none; padding: 10px">About</a></h2>
+			<h2 style="display: inline-block"><a href="/" style="text-decoration: none; padding: 10px">Posts</a></h2>
+		</div>
 	</header>
-	<div style="background-color:#282828;padding:32px;padding-top:20px;width:600px;margin-left:auto;margin-right:auto;line-height:22px;">
+	<div class="content">
 		<h1>Some heading</h1>
 		<p>This is the first paragraph. Ducks are really cool. They live near ponds and streams, and they are easy to fool. The government doesn't want you to know this, but they're free. You can just take them home.</p>
 		<p>Another paragraph</p>
 		<p>Another paragraph 2</p>
+		<a href="/MainPage.html">Main page</a>
+		<a href="https://google.com">aaa</a>
 	</div>
 </body>
 
 </html>
-)"

@@ -760,6 +760,8 @@ endstruc
 %define TCP_STATE_TIME_WAIT 9
 %define TCP_STATE_CLOSED 10
 
+%define TCP_STATE_FREE 11
+
 %define TCP_SEGMENT_SIZE 1400
 
 ; struct ConnectionInfo {
@@ -845,6 +847,12 @@ endstruc
 %define TCP_NOTIFY_MASK 0b1111111
 ; 	u32 notifyFlags;
 ;	u32 blockIdx;
+%define TCP_DEBUG_FLAG_ALLOCATED (1 << 1)
+%define TCP_DEBUG_FLAG_CLOSED (1 << 2)
+%define TCP_DEBUG_FLAG_MARKED_FOR_DELETE (1 << 3)
+%define TCP_DEBUG_FLAG_HASH_DELETED (1 << 4)
+%define TCP_DEBUG_FLAG_FREED (1 << 5)
+;	u32 debugFlags;
 ; }
 %define TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET 0
 %define TCP_TCB_SEND_QUEUE_NEXT_PTR_OFFSET (TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET + 4)
@@ -899,7 +907,8 @@ endstruc
 %define TCP_TCB_CLOSE_REQUESTED_OFFSET (TCP_TCB_STATE_OFFSET + 4)
 %define TCP_TCB_NOTIFY_FLAGS_OFFSET (TCP_TCB_CLOSE_REQUESTED_OFFSET + 4)
 %define TCP_TCB_BLOCK_IDX_OFFSET (TCP_TCB_NOTIFY_FLAGS_OFFSET + 4)
-%define TCP_TCB_SIZE (TCP_TCB_BLOCK_IDX_OFFSET + 4) ; Currently 216 (subject to change)
+%define TCP_TCB_DEBUG_FLAGS_OFFSET (TCP_TCB_BLOCK_IDX_OFFSET + 4)
+%define TCP_TCB_SIZE (TCP_TCB_DEBUG_FLAGS_OFFSET + 4) ; Currently 240 (subject to change)
 
 
 %define PCI_CONFIG_ADDRESS 0xCF8
@@ -916,6 +925,36 @@ endstruc
 %define PCI_CONTROL_IO_SPACE (1 << 0)
 %define PCI_BARS_OFFSET 0x10
 
+
+%define LINKTYPE_ETHERNET 1
+; struct PcapGlobalHeader {
+;	u32 magicNumber; // 0xA1B2C3D4 written in native byte order
+;	u16 versionMajor; // 2
+;	u16 versionMinor; // 4
+;	u32 thisZone; // Current time zone (we'll ignore it)
+;	u32 sigfigs; // ignored
+;	u32 snaplen; // Max length of captured packets (65535)
+;	u32 network; // Data link type (LINKTYPE_ETHERNET)
+; }
+%define PCAP_GLOBAL_HEADER_MAGIC_NUMBER_OFFSET 0
+%define PCAP_GLOBAL_HEADER_VERSION_MAJOR_OFFSET 4
+%define PCAP_GLOBAL_HEADER_VERSION_MINOR_OFFSET 6
+%define PCAP_GLOBAL_HEADER_THIS_ZONE_OFFSET 8
+%define PCAP_GLOBAL_HEADER_SIGFIGS_OFFSET 12
+%define PCAP_GLOBAL_HEADER_SNAPLEN_OFFSET 16
+%define PCAP_GLOBAL_HEADER_NETWORK_OFFSET 20
+%define PCAP_GLOBAL_HEADER_SIZE 24
+; struct PcapPacketHeader {
+;	u32 tsSec; // timestamp seconds
+;	u32 tsUsec; // timestamp microseconds
+;	u32 inclLen; // number of octets saved
+;	u32 origLen; // actual length of the packet
+; }
+%define PCAP_PACKET_HEADER_TS_SEC_OFFSET 0
+%define PCAP_PACKET_HEADER_TS_USEC_OFFSET 4
+%define PCAP_PACKET_HEADER_INCL_LEN_OFFSET 8
+%define PCAP_PACKET_HEADER_ORIG_LEN_OFFSET 12
+%define PCAP_PACKET_HEADER_SIZE 16
 
 ; struct ProgramSection {
 ;	u32 fileOffset;
@@ -987,7 +1026,7 @@ endstruc
 %define DNS_LOOKUP_RESULT_CODE (VARIABLES_START + 144)
 %define DNS_LOOKUP_RESULT_IP (VARIABLES_START + 148)
 %define DNS_LOOKUP_RESULT_TTL_MILLISECONDS (VARIABLES_START + 152)
-%define TCP_FREE_LIST_HEAD_IDX (VARIABLES_START + 160);
+%define TCP_FREE_LIST_HEAD_IDX (VARIABLES_START + 160)
 %define TCP_SEND_QUEUE_HEAD (VARIABLES_START + 164)
 %define TCP_SEND_QUEUE_TAIL (VARIABLES_START + 168)
 %define TCP_NOTIFY_QUEUE_HEAD (VARIABLES_START + 172)
@@ -1012,8 +1051,13 @@ endstruc
 %define TCP_PORT_ENABLE_USER_PORT_MASK 0b1111111111
 %define TCP_PORT_ENABLE (VARIABLES_START + 244)
 %define USER_MODE_SAVED_STACK_POINTER (VARIABLES_START + 248)
-%define ALLOW_KERNEL_PROGRAM_DISK_WRITES (VARIABLES_START + 256)
-%define GLOBAL_VARIABLES_END (VARIABLES_START + 257)
+%define DEBUG_COMMAND_BUFFER_SIZE (VARIABLES_START + 256)
+%define TCP_PACKET_BUFFER_SIZE (VARIABLES_START + 260)
+%define TCP_PACKET_BUFFER_OFFSET (VARIABLES_START + 264)
+%define TCP_PACKET_LOGGING_ENABLE (VARIABLES_START + 268)
+%define PIC0_KEYBOARD_LAST_VALUE (VARIABLES_START + 272)
+%define ALLOW_KERNEL_PROGRAM_DISK_WRITES (VARIABLES_START + 276)
+%define GLOBAL_VARIABLES_END (VARIABLES_START + 280)
 
 %if GLOBAL_VARIABLES_END > 0x2000
 %error Global variables too large
@@ -1042,6 +1086,8 @@ endstruc
 %define SUPERVISOR_PROTECTED_STACK_GUARD_TOP (VIRTIO_BLK_MEMORY_PAGE_ALIGN - 4096)
 %define SUPERVISOR_PROTECTED_STACK (SUPERVISOR_PROTECTED_STACK_GUARD_TOP - 4096)
 %define SUPERVISOR_PROTECTED_STACK_GUARD_BOTTOM (SUPERVISOR_PROTECTED_STACK - 4096)
+%define DEBUG_COMMAND_BUFFER_CAP 256
+%define DEBUG_COMMAND_BUFFER (SUPERVISOR_PROTECTED_STACK_GUARD_BOTTOM - DEBUG_COMMAND_BUFFER_CAP)
 %define TCP_MAX_CONNECTIONS 128
 %define TCP_BLOCK_SIZE (1024 * 512) ; Half a megabyte, the first part is the TCB, the rest makes up the send/receive buffers
 %define TCP_CONNECTIONS_OFFSET 0x8000000000 ; First bit set in the PML4
@@ -1055,6 +1101,10 @@ endstruc
 %define TCP_SEND_QUEUE_INVALID_NEXT_PTR (TCP_CONNECTION_BLOCK_INVALID_IDX - 1)
 %define TCP_TIMEOUT_QUEUE_BYTE_SIZE (TCP_MAX_CONNECTIONS * 2)
 %define TCP_TIMEOUT_QUEUE_OFFSET (TCP_CONNECTION_HASH_TABLE_OFFSET + TCP_CONNECTION_HASH_TABLE_BYTE_COUNT)
+
+%define TCP_PACKET_LOG_BUFFER_CAPACITY 0x400000 ; 4 megs
+%define TCP_PACKET_LOG_BUFFER_OFFSET 0x9000000000
+
 %define USER_PROGRAM_MEMORY_OFFSET 0x10000000000 ; second bit set in PML4
 %define USER_PROGRAM_MEMORY_STACK_OFFSET 0x100000000
 %define USER_PROGRAM_STACK_SIZE (1024 * 1024)
@@ -1592,6 +1642,20 @@ longModeLoader:
 
 systemIdle:
 	DEBUG_PRINT_STR systemIdleStr
+	pushf
+	pop rax
+	test eax, EFLAGS_INTERRUPT_FLAG
+	jnz .halt
+.keyCmdLoop:
+	clc
+	call readKeyboardInputFromPS2
+	mov al, PIC_OCW2_EOI
+	out PIC0_CMD, al
+	pause
+	pause
+	pause
+	pause
+	jmp .keyCmdLoop
 .halt:
 	hlt
 	jmp .halt
@@ -2274,35 +2338,498 @@ interruptPIC0Timer:
 	pop rax
 	iretq
 
-interruptPIC0Keyboard:
+printRegisterDebugInfo:
+	push rax
+	
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, rbx
+	call debugPrintlnInteger
+	
+	mov rax, rcx
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, rdx
+	call debugPrintlnInteger
+	
+	mov rax, rsi
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, rdi
+	call debugPrintlnInteger
+	
+	mov rax, rsp ; Not the stack pointer from the fault location!
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, rbp
+	call debugPrintlnInteger
+	
+	
+	
+	mov rax, r8
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, r9
+	call debugPrintlnInteger
+	
+	mov rax, r10
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, r11
+	call debugPrintlnInteger
+	
+	mov rax, r12
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, r13
+	call debugPrintlnInteger
+	
+	mov rax, r14
+	call debugPrintInteger
+	mov rax, spaceStr
+	call debugPrint
+	mov rax, r15
+	call debugPrintlnInteger
+	
+	pop rax
+	ret
+	
+; rax contains pointer to buffer
+; ebx contains buffer size
+; rax gets incremented by data parsed
+; ebx gets decremented by data parsed
+; rcx gets parsed integer
+parseInteger:
+	push rdx
+
+	xor ecx, ecx
+.parseIntegerLoop:
+	test ebx, ebx
+	jz .end
+	movzx edx, byte [rax]
+	cmp edx, `0`
+	jb .end
+	cmp edx, `9`
+	ja .end
+	imul rcx, rcx, 10
+	lea rcx, [rcx + rdx - `0`]
+	add rax, 1
+	sub ebx, 1
+	jmp .parseIntegerLoop
+.end:
+	pop rdx
+	ret
+	
+; rax contains pointer to buffer
+; ebx contains buffer size
+; rax gets incremented by whitespace skipped
+; ebx gets decremented by whitespace skipped
+skipWhiteSpace:
+	push rcx
+	
+.skipWhiteSpaceLoop:
+	test ebx, ebx
+	jz .end
+	movzx ecx, byte [rax]
+	
+	cmp ecx, ` `
+	je .isWhiteSpace
+	cmp ecx, `\t`
+	je .isWhiteSpace
+	cmp ecx, '\r'
+	je .isWhiteSpace
+	cmp ecx, '\n'
+	je .isWhiteSpace
+	cmp ecx, '\v'
+	je .isWhiteSpace
+	cmp ecx, '\f'
+	je .isWhiteSpace
+	
+	jmp .end
+.isWhiteSpace:
+	add rax, 1
+	sub ebx, 1
+	jmp .skipWhiteSpaceLoop
+	
+.end:
+	pop rcx
+	ret
+	
+unknownCommandStr db "Unknown Command",0x0a,0x00
+pageNotPresentStr db "Page Not Present",0x0a,0x00
+pageNotWritableStr db "Page Not Writable",0x0a,0x00
+	
+; rax contains pointer to buffer
+; ebx contains buffer size
+interpretDebugCommand:
 	push rax
 	push rbx
+	push rcx
+	push rdx
+	push rsi
+	
+	test ebx, ebx
+	jz .end
+	
+	; Commands:
+	; P: page fault
+	; S: restart/shutdown
+	; D: debug info
+	; R: read dword memory
+	; W: write dword memory
+	; T: TCP debug (prints number of free connections)
+	; N: network log config (turn on logging -> dump log -> repeat)
+	; H: hard drive write (usage: H <sector offset> <virtual address> <sector count>)
+	; \n: nothing
+	movzx ecx, byte [rax]
+	add rax, 1
+	sub ebx, 1
+	
+	
+	cmp ecx, 'P'
+	jne .notPageFaultCmd
+	mov dword [DEBUG_COMMAND_BUFFER_SIZE], 0
+	mov eax, 1
+	shl rax, 44
+	mov byte [rax], 0
+	jmp .end
+.notPageFaultCmd:
 
+
+	cmp ecx, 'S'
+	jne .notRestartCmd
+	call systemRestartOrShutdown
+	jmp .end
+.notRestartCmd:
+
+
+	cmp ecx, 'D'
+	jne .notDebugInfoCmd
+	DEBUG_PRINT_NUM64 [rsp + 88] ; return instruction pointer
+	call printRegisterDebugInfo
+	jmp .end
+.notDebugInfoCmd:
+
+
+	cmp ecx, 'R'
+	jne .notReadCmd
+	test ebx, ebx
+	jz .end
+	movzx edx, byte [rax]
+	add rax, 1
+	sub ebx, 1
+	call skipWhiteSpace
+	call parseInteger
+	cmp edx, '1'
+	je .readByte
+	cmp edx, '2'
+	je .readWord
+	cmp edx, '8'
+	je .readQword
+.readDword:
+	mov rax, rcx
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	add rax, 3
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	mov eax, [rax - 3]
+	call debugPrintlnInteger
+	jmp .end
+.readByte:
+	mov rax, rcx
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	movzx eax, byte [rax]
+	call debugPrintlnInteger
+	jmp .end
+.readWord:
+	mov rax, rcx
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	add rax, 1
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	movzx eax, word [rax - 1]
+	call debugPrintlnInteger
+	jmp .end
+.readQword:
+	mov rax, rcx
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	add rax, 7
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .readPageNotPresent
+	mov rax, [rax - 7]
+	call debugPrintlnInteger
+	jmp .end
+.readPageNotPresent:
+	lea rax, [pageNotPresentStr]
+	call debugPrint
+	jmp .end
+.notReadCmd:
+
+
+	cmp ecx, 'W'
+	jne .notWriteCmd
+	test ebx, ebx
+	jz .end
+	movzx edx, byte [rax]
+	add rax, 1
+	sub ebx, 1
+	call skipWhiteSpace
+	call parseInteger
+	mov rsi, rcx
+	call skipWhiteSpace
+	call parseInteger
+	cmp edx, '1'
+	je .writeByte
+	cmp edx, '2'
+	je .writeWord
+	cmp edx, '8'
+	je .writeQword
+.writeDword:
+	mov rax, rsi
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	add rax, 3
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	mov [rax - 3], ecx
+	jmp .end
+.writeByte:
+	mov rax, rsi
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	mov [rax], cl
+	jmp .end
+.writeWord:
+	mov rax, rsi
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	add rax, 1
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	mov [rax - 1], cx
+	jmp .end
+.writeQword:
+	mov rax, rsi
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	add rax, 7
+	call tlbAddressLookup
+	test ebx, PAGE_PRESENT
+	jz .writePageNotPresent
+	test ebx, PAGE_WRITE
+	jz .writePageNotWritable
+	mov [rax - 7], rcx
+	jmp .end
+.writePageNotPresent:
+	lea rax, [pageNotPresentStr]
+	call debugPrint
+	jmp .end
+.writePageNotWritable:
+	lea rax, [pageNotWritableStr]
+	call debugPrint
+	jmp .end
+.notWriteCmd:
+
+
+	cmp ecx, 'T'
+	jne .notTCPDebug
+	mov ecx, [TCP_FREE_LIST_HEAD_IDX]
+	mov rbx, TCP_CONNECTIONS_OFFSET
 	xor eax, eax
+.tcpDebugCountLoop:
+	cmp ecx, TCP_CONNECTION_BLOCK_INVALID_IDX
+	je .tcpDebugCountLoopBreak
+	add eax, 1
+	imul ecx, ecx, TCP_BLOCK_SIZE
+	mov ecx, [rbx + rcx + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET]
+	jmp .tcpDebugCountLoop
+.tcpDebugCountLoopBreak:
+	call debugPrintlnInteger
+	call debugPrintNewline
+	mov eax, [TCP_FREE_LIST_HEAD_IDX]
+	xor ecx, ecx
+.tcpDebugPrintLoop:
+	cmp ecx, 15
+	jae .end
+	add ecx, 1
+	call debugPrintlnInteger
+	cmp eax, TCP_CONNECTION_BLOCK_INVALID_IDX
+	je .end
+	imul eax, eax, TCP_BLOCK_SIZE
+	mov eax, [rbx + rax + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET]
+	jmp .tcpDebugPrintLoop
+.notTCPDebug:
+
+
+	cmp ecx, 'N'
+	jne .notNetworkDebug
+	mov eax, [TCP_PACKET_LOGGING_ENABLE]
+	cmp eax, 2
+	je .loggingInWrongState
+	cmp eax, 0
+	jne .dumpDebugBuffer
+	mov dword [TCP_PACKET_LOGGING_ENABLE], 1
+	jmp .turnOnLogging
+.dumpDebugBuffer:
+	call dumpPacketDebugBufferToDisk
+.turnOnLogging:
+.loggingInWrongState:
+	mov eax, [TCP_PACKET_LOGGING_ENABLE]
+	call debugPrintlnInteger
+	jmp .end
+.notNetworkDebug:
+	
+	
+	cmp ecx, 'H'
+	jne .notHardDriveWrite
+	; Parse disk sector offset
+	call skipWhiteSpace
+	call parseInteger
+	mov rdx, rcx
+	; Parse virtual memory offset
+	call skipWhiteSpace
+	call parseInteger
+	mov rsi, rcx
+	; Parse sector count
+	call skipWhiteSpace
+	call parseInteger
+	mov rbx, rdx ; disk sector offset
+	mov rdx, rcx ; sector count
+	mov rcx, rsi ; virtual memory address
+	mov eax, DISK_CMD_TYPE_WRITE ; command type
+	call diskCommandBlocking
+	call debugPrintlnInteger
+	jmp .end
+.notHardDriveWrite:
+	
+	cmp ecx, `\n`
+	je .end
+	
+.unknownCommand:
+	lea eax, [unknownCommandStr]
+	call debugPrint
+	
+.end:
+	pop rsi
+	pop rdx
+	pop rcx
+	pop rbx
+	pop rax
+	ret
+
+readKeyboardInputFromPS2:
+	push rax
+	push rbx
+	
+	mov eax, 0
 	in al, PS2_DATA_PORT
+	jc .fromKeyboardInterrupt
+	cmp eax, [PIC0_KEYBOARD_LAST_VALUE]
+	je .end
+.fromKeyboardInterrupt:
+	mov [PIC0_KEYBOARD_LAST_VALUE], eax
 	test al, 0b10000000
-	jnz keyReleased
+	jnz .keyReleased
 	mov bl, al ; Save scan code
-	mov byte al, [keyscancodemap + eax]
+	mov byte al, [keyscancodemap + rax]
 	test al, al
-	jz keyNotASCII
+	jz .keyNotASCII
+	cmp al, `\b`
+	jne .keyNotBackspace
+	mov ebx, [DEBUG_TEXT_OFFSET_LOCATION]
+	mov eax, 80 * 25 - 1
+	sub ebx, 1
+	cmovl ebx, eax
+	mov eax, (0x07 << 8) | ' ' ; Grey space
+	mov [TEXT_VIDEO_MEMORY + rbx * 2], ax
+	mov [DEBUG_TEXT_OFFSET_LOCATION], ebx
+	call debugUpdateCursor
+	
+	cmp dword [DEBUG_COMMAND_BUFFER_SIZE], 0
+	je .end
+	sub dword [DEBUG_COMMAND_BUFFER_SIZE], 1
+	jmp .end
+.keyNotBackspace:
 	call debugPrintChar
-keyNotASCII:
+	
+	mov ebx, [DEBUG_COMMAND_BUFFER_SIZE]
+	cmp ebx, DEBUG_COMMAND_BUFFER_CAP
+	je .resetCommandBuffer
+	mov [DEBUG_COMMAND_BUFFER + rbx], al
+	add ebx, 1
+	mov [DEBUG_COMMAND_BUFFER_SIZE], ebx
+	cmp al, `\n`
+	jne .commandBufferProcessEnd
+	mov rax, DEBUG_COMMAND_BUFFER
+	call interpretDebugCommand
+.resetCommandBuffer:
+	mov dword [DEBUG_COMMAND_BUFFER_SIZE], 0
+.commandBufferProcessEnd:
+	
+	jmp .keyWasASCII
+.keyNotASCII:
 	cmp bl, 1
 	jne .keyNotEsc
 	call systemRestartOrShutdown
+.keyWasASCII:
 .keyNotEsc:
-keyReleased:
+.keyReleased:
 
-	mov al, PIC_OCW2_EOI
-	out PIC0_CMD, al
+.end:
 	pop rbx
+	pop rax
+	ret
+
+interruptPIC0Keyboard:
+	push rax
+	
+	stc
+	call readKeyboardInputFromPS2
+	
+	mov eax, PIC_OCW2_EOI
+	out PIC0_CMD, al
 	pop rax
 	iretq
 
 interruptPIC1Generic:
 	push rax
-	mov al, PIC_OCW2_EOI
+	mov eax, PIC_OCW2_EOI
 	out PIC1_CMD, al
 	out PIC0_CMD, al
 	pop rax
@@ -2361,6 +2888,7 @@ interruptVirtIONetwork:
 	push rcx
 	push rdx
 	push rsi
+	push rdi
 
 	call virtIOServiceTX
 
@@ -2369,25 +2897,31 @@ interruptVirtIONetwork:
 	movzx ebx, word [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_LAST_SEEN_USED_OFFSET]
 	cmp ax, bx
 	je .noRxServiceNeeded
-	mov si, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_IDX_OFFSET]
+	movzx esi, word [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_IDX_OFFSET]
 .keepServicingRx:
 	mov ecx, ebx
 	movzx edx, word [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_DESC_COUNT_OFFSET]
 	sub edx, 1 ; Queue size mask
 	and ecx, edx
+	; Get packet written length
+	mov edi, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_USED_OFFSET + VIRTQ_USED_RING_OFFSET + rcx * VIRTQ_USED_ELEM_SIZE + VIRTQ_USED_ELEM_LEN_OFFSET]
 	; Get id of descriptor head
-	mov ecx, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_USED_OFFSET + VIRTQ_USED_RING_OFFSET + ecx * VIRTQ_USED_ELEM_SIZE + VIRTQ_USED_ELEM_ID_OFFSET]
+	mov ecx, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_USED_OFFSET + VIRTQ_USED_RING_OFFSET + rcx * VIRTQ_USED_ELEM_SIZE + VIRTQ_USED_ELEM_ID_OFFSET]
 	push rax
 	imul eax, ecx, VIRTQ_DESC_SIZE
-	movzx eax, word [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + eax + VIRTQ_DESC_NEXT_OFFSET]
+	movzx eax, word [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rax + VIRTQ_DESC_NEXT_OFFSET]
 	imul eax, eax, VIRTQ_DESC_SIZE
+	; The size of the actual packet data
+	xchg ecx, edi
+	sub ecx, VIRTIO_NET_HDR_SIZE
 	; The pointer for the packet data
-	mov rax, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + eax + VIRTQ_DESC_ADDR_OFFSET]
+	mov rax, [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rax + VIRTQ_DESC_ADDR_OFFSET]
+	call logPacketToDebugBuffer
 	call processPacket
 	; After processing, put packet right back on the receive queue
-	movzx eax, si
+	mov eax, esi
 	and eax, edx
-	mov [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_RING_OFFSET + eax * 2], cx
+	mov [VIRTIO_NET_RX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_RING_OFFSET + rax * 2], di
 	add si, 1
 	pop rax
 	; See if there are more to process
@@ -2415,6 +2949,7 @@ interruptVirtIONetwork:
 	call tcpTrySendAllData
 .tcpDontTryToSendData:
 
+	pop rdi
 	pop rsi
 	pop rdx
 	pop rcx
@@ -2425,7 +2960,7 @@ interruptVirtIONetwork:
 	iretq
 
 interruptVirtIOBlock:
-	call diskVirtQInterrupt
+	call processCompletedDiskCommands
 	mov dword [APIC_REGISTER_PAGE + APIC_EOI_OFFSET], 0
 	iretq
 
@@ -2470,63 +3005,10 @@ interruptPageFault:
 	; 15, SGX - 1 if caused by biolation of SGX access control, 0 if not SGX related
 	DEBUG_PRINT_NUM64 [rsp + 8] ; error code
 	
+	
 	mov rax, [rsp - 256]
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, rbx
-	call debugPrintlnInteger
 	
-	mov rax, rcx
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, rdx
-	call debugPrintlnInteger
-	
-	mov rax, rsi
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, rdi
-	call debugPrintlnInteger
-	
-	mov rax, rsp ; Not the stack pointer from the fault location!
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, rbp
-	call debugPrintlnInteger
-	
-	
-	
-	mov rax, r8
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, r9
-	call debugPrintlnInteger
-	
-	mov rax, r10
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, r11
-	call debugPrintlnInteger
-	
-	mov rax, r12
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, r13
-	call debugPrintlnInteger
-	
-	mov rax, r14
-	call debugPrintInteger
-	mov rax, spaceStr
-	call debugPrint
-	mov rax, r15
-	call debugPrintlnInteger
+	call printRegisterDebugInfo
 	
 	mov rax, [rsp + 8] ; address of instruction that caused the fault
 	call tlbAddressLookup
@@ -2539,18 +3021,19 @@ interruptPageFault:
 	mov eax, spaceStr
 	call debugPrint
 	mov rax, [rcx + 8]
-	call debugPrintInteger
+	call debugPrintlnInteger
 .instructionPageNotPresent:
 	
 	jmp systemIdle
 	iretq
 
-keyscancodemap db 0,0,"1234567890-=",0,0x09,"QWERTYUIOP[]",0x0a,0,"ASDFGHJKL;'` \ZXCVBNM,./",0,0,0," ",0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+keyscancodemap db 0,0,`1234567890-=\b\tQWERTYUIOP[]\n`,0,"ASDFGHJKL;'` \ZXCVBNM,./",0,0,0," ",0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+times 44 db 0
 
 
-
-
-
+; ebx contains new cursor position
+; al clobbered
+; dx clobbered
 debugUpdateCursor:
 	mov dx, VGA_ADDRESS
 	mov al, VGA_CURSOR_LOW_BYTE
@@ -2598,7 +3081,7 @@ debugPrint:
 	cli
 
 	mov rdx, rax
-	mov dword ebx, [DEBUG_TEXT_OFFSET_LOCATION]
+	mov ebx, [DEBUG_TEXT_OFFSET_LOCATION]
 	mov ah, 0x7 ; Color grey
 	xor ecx, ecx
 
@@ -2619,7 +3102,7 @@ notCarriageReturn:
 debugNewlinePrintLoop:
 	mov al, 0x20 ; space
 
-	mov word [TEXT_VIDEO_MEMORY + rbx * 2], ax
+	mov [TEXT_VIDEO_MEMORY + rbx * 2], ax
 	add ebx, 1
 	cmp ebx, 80 * 25
 	cmove ebx, ecx
@@ -3260,6 +3743,33 @@ initializeVirtIOBlk:
 	mov [rax + VIRTIO_PCI_COMMON_DEVICE_STATUS_OFFSET], cl
 	
 	call identityMapScratchPages
+	; DEBUG initialize packet buffer
+	mov rax, TCP_PACKET_LOG_BUFFER_OFFSET
+	xor ebx, ebx
+	mov rsi, PAGE_PRESENT | PAGE_WRITE | PAGE_EXECUTE_DISABLE
+.allocLogBufferLoop:
+	call mapPhysicalToVirtual
+	jc .error
+	add ebx, 0x1000
+	add rax, 0x1000
+	cmp ebx, TCP_PACKET_LOG_BUFFER_CAPACITY
+	jl .allocLogBufferLoop
+	; will waste a couple pages, but whatever.
+	call mapPhysicalToVirtual
+	add rax, 1024 * 1024 * 2
+	call mapPhysicalToVirtual
+	sub rax, 1024 * 1024 * 2
+	jc .error
+	mov rbx, FOUR_LEVEL_PAGING_HIGH_BITS | (PML_SELF_REFERENCE << PML4_BIT_OFFSET) | ((TCP_PACKET_LOG_BUFFER_OFFSET >> (PML1_BIT_OFFSET - 3)) & ~0b111)
+	mov rcx, FOUR_LEVEL_PAGING_HIGH_BITS | (PML_SELF_REFERENCE << PML4_BIT_OFFSET) | (((TCP_PACKET_LOG_BUFFER_OFFSET + TCP_PACKET_LOG_BUFFER_CAPACITY) >> (PML1_BIT_OFFSET - 3)) & ~0b111)
+	mov edx, TCP_PACKET_LOG_BUFFER_CAPACITY
+.circularBufferMap:
+	mov rax, [rbx]
+	mov [rcx], rax
+	add rbx, 0x1000 >> (PML1_BIT_OFFSET - 3)
+	add rcx, 0x1000 >> (PML1_BIT_OFFSET - 3)
+	sub edx, 0x1000
+	jnz .circularBufferMap
 	DEBUG_PRINT_STR virtIOBlkInitDone
 	clc
 	jmp .end
@@ -3519,6 +4029,164 @@ initializeVirtIONet:
 	pop r10
 	pop r9
 	pop r8
+	pop rdi
+	pop rsi
+	pop rdx
+	pop rcx
+	pop rbx
+	pop rax
+	ret
+	
+; rax contains packet address
+; ecx contains packet size
+logPacketToDebugBuffer:
+	push rax
+	push rbx
+	push rcx
+	push rdx
+	push rsi
+	push rdi
+	
+	cmp dword [TCP_PACKET_LOGGING_ENABLE], 1
+	jne .end
+	cmp ecx, 65535
+	ja .end
+	cmp ecx, ETHERNET_HEADER_SIZE
+	jb .end
+	
+	push rax
+	add ecx, PCAP_PACKET_HEADER_SIZE
+	
+	mov edi, [TCP_PACKET_BUFFER_OFFSET]
+	add edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	sub edi, [TCP_PACKET_BUFFER_SIZE]
+	lea eax, [edi - TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	cmovae edi, eax ; edi = (offset + (capacity - size)) % capacity
+	
+	mov rsi, TCP_PACKET_LOG_BUFFER_OFFSET
+	; rsi + rdi is the address of the oldest packet written to the log buffer
+	
+	mov ebx, TCP_PACKET_LOG_BUFFER_CAPACITY
+	sub ebx, [TCP_PACKET_BUFFER_SIZE] ; Free space
+	cmp ebx, ecx
+	jae .clearSpaceLoopEnd
+.clearSpaceLoop:
+	mov edx, [rsi + rdi + PCAP_PACKET_HEADER_INCL_LEN_OFFSET]
+	add edx, PCAP_PACKET_HEADER_SIZE
+	add ebx, edx ; freeSpace += packetLen
+	add edi, edx ; oldPacketOffset += packetLen
+	sub [TCP_PACKET_BUFFER_SIZE], edx
+	lea eax, [edi - TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	cmovae edi, eax
+	cmp ebx, ecx
+	jnae .clearSpaceLoop
+.clearSpaceLoopEnd:
+
+	add [TCP_PACKET_BUFFER_SIZE], ecx
+	mov ebx, [TCP_PACKET_BUFFER_OFFSET]
+	lea rdi, [rsi + rbx]
+	add ebx, ecx
+	lea edx, [ebx - TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp ebx, TCP_PACKET_LOG_BUFFER_CAPACITY
+	cmovae ebx, edx
+	mov [TCP_PACKET_BUFFER_OFFSET], ebx
+	; We don't have a very high resolution timer for this, but it'll have to do
+	mov edx, [PIT_CLOCK_MILLISECONDS]
+	imul rsi, rdx, 274877907 ; Easy divide by 1000 to get seconds, constant generated by gcc
+	shr rsi, 38
+	mov [rdi + PCAP_PACKET_HEADER_TS_SEC_OFFSET], esi
+	imul esi, esi, 1000
+	sub edx, esi ; Subtract seconds from milliseconds
+	imul edx, edx, 1000 ; Milliseconds to microseconds
+	mov [rdi + PCAP_PACKET_HEADER_TS_USEC_OFFSET], edx
+	sub ecx, PCAP_PACKET_HEADER_SIZE
+	mov [rdi + PCAP_PACKET_HEADER_INCL_LEN_OFFSET], ecx
+	mov [rdi + PCAP_PACKET_HEADER_ORIG_LEN_OFFSET], ecx
+	add rdi, PCAP_PACKET_HEADER_SIZE
+	pop rsi
+	rep movsb
+	
+.end:
+	pop rdi
+	pop rsi
+	pop rdx
+	pop rcx
+	pop rbx
+	pop rax
+	ret
+	
+; Only call from outside an interrupt
+dumpPacketDebugBufferToDisk:
+	push rax
+	push rbx
+	push rcx
+	push rdx
+	push rsi
+	push rdi
+	
+	mov dword [TCP_PACKET_LOGGING_ENABLE], 2
+	
+	mov ecx, PCAP_GLOBAL_HEADER_SIZE + 4
+	
+	mov edi, [TCP_PACKET_BUFFER_OFFSET]
+	add edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	sub edi, [TCP_PACKET_BUFFER_SIZE]
+	lea eax, [edi - TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	cmovae edi, eax ; edi = (offset + (capacity - size)) % TCP_PACKET_LOG_BUFFER_CAPACITY
+	
+	mov rsi, TCP_PACKET_LOG_BUFFER_OFFSET
+	; rsi + rdi is the address of the oldest packet written to the log buffer
+	
+	mov ebx, TCP_PACKET_LOG_BUFFER_CAPACITY
+	sub ebx, [TCP_PACKET_BUFFER_SIZE] ; Free space
+	cmp ebx, ecx
+	jae .clearSpaceLoopEnd
+.clearSpaceLoop:
+	mov edx, [rsi + rdi + PCAP_PACKET_HEADER_INCL_LEN_OFFSET]
+	add edx, PCAP_PACKET_HEADER_SIZE
+	add ebx, edx ; freeSpace += packetLen
+	add edi, edx ; oldPacketOffset += packetLen
+	sub [TCP_PACKET_BUFFER_SIZE], edx
+	lea eax, [edi - TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp edi, TCP_PACKET_LOG_BUFFER_CAPACITY
+	cmovae edi, eax
+	cmp ebx, ecx
+	jnae .clearSpaceLoop
+.clearSpaceLoopEnd:
+
+	sub edi, PCAP_GLOBAL_HEADER_SIZE + 4
+	lea ebx, [edi + TCP_PACKET_LOG_BUFFER_CAPACITY]
+	cmp edi, 0
+	cmovl edi, ebx
+	add rsi, rdi
+	mov ebx, [TCP_PACKET_BUFFER_SIZE]
+	add ebx, PCAP_GLOBAL_HEADER_SIZE
+	mov [rsi], ebx
+	mov dword [rsi + 4 + PCAP_GLOBAL_HEADER_MAGIC_NUMBER_OFFSET], 0xA1B2C3D4
+	mov word [rsi + 4 + PCAP_GLOBAL_HEADER_VERSION_MAJOR_OFFSET], 2
+	mov word [rsi + 4 + PCAP_GLOBAL_HEADER_VERSION_MINOR_OFFSET], 4
+	mov dword [rsi + 4 + PCAP_GLOBAL_HEADER_THIS_ZONE_OFFSET], 0
+	mov dword [rsi + 4 + PCAP_GLOBAL_HEADER_SIGFIGS_OFFSET], 0
+	mov dword [rsi + 4 + PCAP_GLOBAL_HEADER_SNAPLEN_OFFSET], 65535
+	mov dword [rsi + 4 + PCAP_GLOBAL_HEADER_NETWORK_OFFSET], LINKTYPE_ETHERNET
+	
+	mov eax, DISK_CMD_TYPE_WRITE ; command type
+	mov rcx, rsi ; virtual memory address
+	mov ebx, 1024 * 1024 / 512 ; disk sector offset
+	mov edx, [TCP_PACKET_BUFFER_SIZE]
+	add edx, PCAP_GLOBAL_HEADER_SIZE + 4 + 511
+	shr edx, 9 ; bytes to sectors for sector count
+	call diskCommandBlocking
+	call debugPrintlnInteger
+	
+	mov dword [TCP_PACKET_BUFFER_OFFSET], 0
+	mov dword [TCP_PACKET_BUFFER_SIZE], 0
+	mov dword [TCP_PACKET_LOGGING_ENABLE], 0
+	
+.end:
 	pop rdi
 	pop rsi
 	pop rdx
@@ -3821,8 +4489,8 @@ tryExecuteDiskCmd:
 	
 diskVirtqInterruptStr db "Disk VirtQ Interrupt",0x0a,0x00
 	
-; Called from virtio blk interrupt handler
-diskVirtQInterrupt:
+; Called from virtio blk interrupt handler and blocking disk commands
+processCompletedDiskCommands:
 	push rax
 	push rbx
 	push rcx
@@ -3934,7 +4602,7 @@ diskVirtQInterrupt:
 	pop rax
 	ret
 	
-; To be called only from user space.
+; To be called only from user space (unless debugging).
 ; ax contains disk command type (read/write/flush)
 ; rcx contains virtual memory data pointer
 ; rbx contains disk sector offset (1 disk sector is 512 bytes)
@@ -3944,6 +4612,9 @@ diskVirtQInterrupt:
 diskCommand:
 	push rbx
 	push rsi
+	
+	pushf
+	
 	cli
 
 	mov esi, eax
@@ -3954,6 +4625,7 @@ diskCommand:
 	cmp word [VIRTIO_BLK_DISK_CMD_FREE_LIST_HEAD], DISK_CMD_INVALID_INDEX
 	je .end
 	mov eax, DISK_ERROR_DATA_PTR_INVALID
+	
 	;call tlbVerifyUserBuffer
 	;jc .end ; TODO replace after done testing
 	mov eax, DISK_ERROR_DISK_AREA_OUT_OF_RANGE
@@ -4000,12 +4672,16 @@ diskCommand:
 	mov eax, DISK_ERROR_SUCCESS
 	
 .end:
+	pop rsi
+	test esi, EFLAGS_INTERRUPT_FLAG
+	jz .noInterruptSet
 	sti
+.noInterruptSet:
 	pop rsi
 	pop rbx
 	ret
 	
-; To be called only from user space.
+; To be called only from user space (unless debugging).
 ; ax contains disk command type (read/write/flush)
 ; rcx contains virtual memory data pointer
 ; rbx contains disk sector offset (1 disk sector is 512 bytes)
@@ -4013,13 +4689,19 @@ diskCommand:
 ; eax gets DiskError
 diskCommandBlocking:
 	push rbx
+	push rcx
 	push rdi
 	push rsi
 	
+.randGen1:
 	rdrand rdi
+	jnc .randGen1
 	call diskCommand
 	cmp eax, DISK_ERROR_SUCCESS
 	jne .end
+	
+	pushf
+	pop rcx
 	
 	mov eax, [PIT_CLOCK_MILLISECONDS]
 .waitForCompletionLoop:
@@ -4048,6 +4730,8 @@ diskCommandBlocking:
 	mov [esi + 8], rax
 	pop rax
 .nothingOnCompletedQueue:
+	test ecx, EFLAGS_INTERRUPT_FLAG
+	jz .end
 	sti
 	jmp .end
 .cmdWasNotOurs:
@@ -4055,8 +4739,17 @@ diskCommandBlocking:
 	cmp ebx, [VIRTIO_BLK_COMPLETED_DISK_CMD_COUNT]
 	jl .completedDiskCmdCheckLoop
 .completedDiskCmdCheckLoopBreak:
+	test ecx, EFLAGS_INTERRUPT_FLAG
+	jz .interruptsNotEnabled
 	sti
 	hlt
+	jmp .interruptsEnabled
+.interruptsNotEnabled:
+	pause
+	call processCompletedDiskCommands
+.interruptsEnabled:
+	; The timeout won't work if interrupts aren't enabled, but that should be alright
+	; The only reason this would be called without interrupts enabled is if I'm currently debugging it
 	mov ebx, [PIT_CLOCK_MILLISECONDS]
 	sub ebx, eax
 	cmp ebx, 100000 ; wait 100 seconds. Might change this later
@@ -4066,6 +4759,7 @@ diskCommandBlocking:
 .end:
 	pop rsi
 	pop rdi
+	pop rcx
 	pop rbx
 	ret
 	
@@ -4188,11 +4882,18 @@ queueTxPacket:
 
 	; Patch in packet length
 	imul ecx, eax, VIRTQ_DESC_SIZE
-	mov rdx, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + ecx + VIRTQ_DESC_ADDR_OFFSET]
-	movzx ecx, word [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + ecx + VIRTQ_DESC_NEXT_OFFSET]
+	mov rdx, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rcx + VIRTQ_DESC_ADDR_OFFSET]
+	movzx ecx, word [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rcx + VIRTQ_DESC_NEXT_OFFSET]
 	imul ecx, ecx, VIRTQ_DESC_SIZE
-	mov [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + ecx + VIRTQ_DESC_LEN_OFFSET], ebx
-	mov rsi, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + ecx + VIRTQ_DESC_ADDR_OFFSET]
+	push rax
+	push rcx
+	mov rax, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rcx + VIRTQ_DESC_ADDR_OFFSET]
+	mov ecx, ebx
+	call logPacketToDebugBuffer
+	pop rcx
+	pop rax
+	mov [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rcx + VIRTQ_DESC_LEN_OFFSET], ebx
+	mov rsi, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_OFFSET + rcx + VIRTQ_DESC_ADDR_OFFSET]
 	
 	test dword [VIRTIO_NET_NEGOTIATED_FEATURES], VIRTIO_NET_F_CSUM
 	jz .noChecksumOffload
@@ -4216,13 +4917,13 @@ queueTxPacket:
 	movzx ebx, word [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_DESC_COUNT_OFFSET]
 	sub ebx, 1 ; descMask
 	and ecx, ebx
-	mov [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_RING_OFFSET + ecx * 2], ax ; Add to ring
+	mov [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_RING_OFFSET + rcx * 2], ax ; Add to ring
 	add word [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_AVAIL_OFFSET + VIRTQ_AVAIL_IDX_OFFSET], 1
 	mov cx, [VIRTIO_NET_TX_QUEUE_OFFSET + VIRTQ_USED_OFFSET + VIRTQ_USED_FLAGS_OFFSET] ; Check flags to see if we should notify
 	test cx, VIRTQ_USED_FLAGS_NO_NOTIFY
 	jnz .noNotify
 	mov ecx, [VIRTIO_NET_TX_QUEUE_NOTIFY_ADDR]
-	mov word [ecx], 1 ; Write transmit queue index to the notify address
+	mov word [rcx], 1 ; Write transmit queue index to the notify address
 .noNotify:
 
 	pop rcx
@@ -4747,7 +5448,9 @@ dnsLookupBlocking:
 	call encodeUDPIPv4Ethernet
 
 	; Add payload
+.randGen1:
 	rdrand cx ; Get a random message id
+	jnc .randGen1
 	mov [DNS_LOOKUP_MESSAGE_ID], cx
 	mov [rbx + rax + DNS_MESSAGE_HEADER_ID_OFFSET], cx
 	mov word [rbx + rax + DNS_MESSAGE_HEADER_FLAGS_OFFSET], HTON16(DNS_MESSAGE_HEADER_FLAG_RECURSION_DESIRED | (DNS_MESSAGE_OP_STANDARD_QUERY << DNS_MESSAGE_HEADER_FLAG_OPCODE_SHIFT))
@@ -4955,7 +5658,9 @@ startDHCP:
 	mov [DHCP_GATEWAY_MAC], rcx ; Store broadcast mac
 	; mov ecx, [PIT_CLOCK] ; Best "random" number I've got right now
 .getRandom:
+.randGen1:
 	rdrand ecx
+	jnc .randGen1
 	jnc .getRandom ; Carry flag will be 1 if success
 	mov [DHCP_CURRENT_XID], ecx
 	call getDHCPDiscoverPacket
@@ -5136,6 +5841,7 @@ allocTCPBlocks:
 	add esi, 1
 	mov [rax + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET], esi
 	mov dword [rax + TCP_TCB_SEND_QUEUE_NEXT_PTR_OFFSET], TCP_SEND_QUEUE_INVALID_NEXT_PTR
+	mov dword [rax + TCP_TCB_STATE_OFFSET], TCP_STATE_FREE
 
 	; Set send and receive buffers
 	lea rdi, [rax + TCP_TCB_SIZE]
@@ -5334,6 +6040,8 @@ tcpAlloc:
 	mov eax, [rcx + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET]
 	mov dword [rcx + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET], TCP_NOTIFY_QUEUE_INVALID_NEXT_PTR
 	mov [TCP_FREE_LIST_HEAD_IDX], eax
+	mov dword [rcx + TCP_TCB_STATE_OFFSET], TCP_STATE_CLOSED
+	mov dword [rcx + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_ALLOCATED
 	
 
 .end:
@@ -5355,15 +6063,21 @@ tcpFree:
 	mov rax, TCP_CONNECTIONS_OFFSET
 	imul ecx, ebx, TCP_BLOCK_SIZE
 	add rax, rcx
+	cmp dword [rax + TCP_TCB_STATE_OFFSET], TCP_STATE_FREE
+	je .end ; avoid double free, just in case
+	or dword [rax + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_FREED
 	mov ecx, [TCP_FREE_LIST_HEAD_IDX]
 	cmp dword [rax + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET], TCP_NOTIFY_QUEUE_INVALID_NEXT_PTR
 	je .nextPtrOk
 	DEBUG_PRINT_STR tcpNotifyQueuePtrWasStillValidStr
-	DEBUG_SEND_STR tcpNotifyQueuePtrWasStillValidStr
+	mov eax, 1
+	shr rax, 44
+	mov byte [rax], 0 ; cause a page fault so we know to look more into this if it ever happens
 .nextPtrOk:
 	DEBUG_SEND_STR tcpFreeStr
 	mov [rax + TCP_TCB_FREE_AND_NOTIFY_QUEUE_NEXT_PTR_OFFSET], ecx
 	mov [TCP_FREE_LIST_HEAD_IDX], ebx
+	mov dword [rax + TCP_TCB_STATE_OFFSET], TCP_STATE_FREE
 
 	pop rcx
 	test ecx, EFLAGS_INTERRUPT_FLAG
@@ -5517,6 +6231,7 @@ tcpDelete:
 	mov rcx, [rbx + TCP_TCB_REMOTE_IP_OFFSET]
 	mov edx, [rbx + TCP_TCB_REMOTE_PORT_OFFSET]
 	call tcpHashDelete
+	or dword [rbx + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_HASH_DELETED
 	mov ebx, [rbx + TCP_TCB_BLOCK_IDX_OFFSET]
 	call tcpFree
 
@@ -5543,8 +6258,10 @@ tcpMarkForDelete:
 	mov edx, [rbx + TCP_TCB_REMOTE_PORT_OFFSET]
 	call tcpHashDelete
 	mov ecx, eax ; get flags back
+	or ecx, TCP_NOTIFY_CLOSED ; Should be set by the caller, but set this just to make sure.
 	call tcpNotify
 	mov dword [rbx + TCP_TCB_STATE_OFFSET], TCP_STATE_CLOSED
+	or dword [rbx + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_MARKED_FOR_DELETE | TCP_DEBUG_FLAG_HASH_DELETED
 
 	pop rdx
 	pop rcx
@@ -5687,9 +6404,9 @@ tcpSendData:
 	jmp .needsOneCopy
 .needsTwoCopies:
 	xchg ecx, edx ; copy size = dataUntilEnd
+	sub edx, ecx
 	rep movsb
 	mov rsi, [r11 + TCP_TCB_SEND_BUFFER_OFFSET] ; src = sendBuffer
-	sub edx, ecx
 	mov ecx, edx ; copy size = dataTransfer - dataUntilEnd
 	mov [r11 + TCP_TCB_SEND_DATA_POS_OFFSET], ecx
 	rep movsb
@@ -5886,6 +6603,7 @@ tcpClose:
 	imul ebx, ebx, TCP_BLOCK_SIZE
 	mov rcx, TCP_CONNECTIONS_OFFSET
 	add rbx, rcx
+	or dword [rbx + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_CLOSED
 	mov eax, [rbx + TCP_TCB_STATE_OFFSET]
 
 	cmp eax, TCP_STATE_SYN_SENT
@@ -5950,17 +6668,18 @@ tcpSend:
 	mov rax, TCP_CONNECTIONS_OFFSET
 	add rbx, rax
 	
-	mov eax, [rbx + TCP_TCB_STATE_OFFSET]
 	mov edi, edx
-	mov edx, -1
-	cmp eax, TCP_STATE_ESTABLISHED
+	mov edx, [rbx + TCP_TCB_STATE_OFFSET]
+	; Return -1 if can't send in this state
+	mov eax, -1
+	cmp edx, TCP_STATE_ESTABLISHED
 	je .shouldSendForThisState
-	cmp eax, TCP_STATE_CLOSE_WAIT
+	cmp edx, TCP_STATE_CLOSE_WAIT
 	je .shouldSendForThisState
-	cmp eax, TCP_STATE_SYN_SENT
+	cmp edx, TCP_STATE_SYN_SENT
 	je .shouldSendForThisState
-	cmp eax, TCP_STATE_SYN_RECEIVED
-	jne .noDataSent
+	cmp edx, TCP_STATE_SYN_RECEIVED
+	jne .end
 .shouldSendForThisState:
 	mov edx, edi
 	
@@ -6008,12 +6727,12 @@ tcpSend:
 	jmp .oneCopyNeeded
 .twoCopiesNeeded:
 	; memcpy(block.sendBuffer + writePos, buffer, dataUntilEnd)
+	sub edx, ecx ; edx = sendSize - dataUntilEnd
 	rep movsb
 	; memcpy(block.sendBuffer, buffer + dataUntilEnd, sendSize - dataUntilEnd)
 	; src = buffer + dataUntilEnd
 	mov rdi, [rbx + TCP_TCB_SEND_BUFFER_OFFSET] ; dst = sendBuffer
-	sub edx, ecx ; edx = sendSize - dataUntilEnd
-	mov ecx, edx ; copy size = edx
+	mov ecx, edx ; copy size = edx = sendSize - dataUntilEnd
 	rep movsb
 .oneCopyNeeded:
 
@@ -6140,6 +6859,7 @@ tcpCannibalize:
 	mov rsi, TCP_CONNECTIONS_OFFSET
 	add rax, rsi ; block
 	call tcpHashDelete
+	or dword [rax + TCP_TCB_DEBUG_FLAGS_OFFSET], TCP_DEBUG_FLAG_HASH_DELETED
 	mov dword [rax + TCP_TCB_NOTIFY_FLAGS_OFFSET], 0
 	mov eax, [rax + TCP_TCB_STATE_OFFSET]
 	cmp eax, TCP_STATE_SYN_RECEIVED
@@ -6219,7 +6939,7 @@ tcpAbort:
 ; rbx contains block idx
 ; rcx contains buffer address
 ; edx contains buffer size
-; edx gets amount received, or -1 if the block state was invalid
+; rdx gets (amount received) | ((amount left in tcp buffer after receive) << 32), or -1 if the block state was invalid
 tcpReceive:
 	push rax
 	push rbx
@@ -6242,7 +6962,7 @@ tcpReceive:
 	je .end
 	cmp eax, TCP_STATE_SYN_RECEIVED
 	je .end
-	mov edx, -1
+	mov rdx, -1
 	cmp eax, TCP_STATE_ESTABLISHED
 	je .shouldReceiveForThisState
 	cmp eax, TCP_STATE_FIN_WAIT_1
@@ -6298,8 +7018,8 @@ tcpReceive:
 	mov rsi, [rbx + TCP_TCB_RECEIVE_BUFFER_OFFSET]
 	mov ecx, edx
 	sub ecx, eax ; receiveSize - dataUntilEnd
-	rep movsb
 	mov [rbx + TCP_TCB_RECEIVE_DATA_POS_OFFSET], ecx
+	rep movsb
 	sub [rbx + TCP_TCB_RECEIVE_DATA_SIZE_OFFSET], edx
 	mov eax, [rbx + TCP_TCB_RECEIVE_WINDOW_OFFSET]
 	add [rbx + TCP_TCB_RECEIVE_WINDOW_OFFSET], edx
@@ -6312,7 +7032,9 @@ tcpReceive:
 	mov esi, [rbx + TCP_TCB_RECEIVE_NEXT_OFFSET] ; ack
 	mov edi, [rbx + TCP_TCB_SEND_NEXT_OFFSET] ; seq
 	call tcpSendPacketFromTCB
-	mov edx, eax
+	mov edx, [rbx + TCP_TCB_RECEIVE_DATA_SIZE_OFFSET]
+	shl rdx, 32
+	or rdx, rax
 .end:
 	sti
 	pop rbp
@@ -6491,7 +7213,9 @@ tcpBlockInit:
 	mov dword [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET], 536 ; The default maximum segment size, specified in RFC
 	mov dword [rbx + TCP_TCB_RECEIVE_NEXT_OFFSET], 0
 	mov dword [rbx + TCP_TCB_RECEIVE_INITIAL_SEQUENCE_NUMBER_OFFSET], 0
+.randGen1:
 	rdrand esi ; Should have something to do with time I think, just randomize it for now
+	jnc .randGen1
 	mov [rbx + TCP_TCB_SEND_INITIAL_SEQUENCE_NUMBER_OFFSET], esi
 	mov [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET], esi
 	add esi, 1 ; Add one to account for the SYN
@@ -6624,7 +7348,10 @@ tcpProcessExtensions:
 	movbe ax, [rcx]
 	mov esi, TCP_SEGMENT_SIZE
 	cmp esi, eax
-	cmovl eax, esi
+	cmovb eax, esi
+	mov esi, 536 ; Make sure it's at least the minimum segment size as well
+	cmp esi, eax
+	cmova eax, esi
 	mov [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET], eax ; sendMaximumSegmentSize = min(packet.maxSegmentSize, TCP_SEGMENT_SiZE)
 .notMaximumSegmentSizeExt:
 	lea rcx, [rcx + rdi + 1]
@@ -6660,10 +7387,14 @@ connectionWasStateSynSent db "Connection Was In SYN_SENT",0x0a,0x00
 stateNotSynSentStr db "State Not SYN_SENT",0x0a,0x00
 dataNotifedStr db "Data Notified",0x0a,0x00
 gotAckSendRstStr db "Got ack, sending rst",0x0a,0x00
+corruptingBitStr db "  Corrupting bit: ",0x00
+outOfStr db " out of ",0x00
+gotRstStr db "Got rst",0x0a,0x00
 
 ; This function is extracted from processPacket so I can group it with the other TCP stuff
 ; rax has packet data address (starting with TCP header)
-; ecx has packet data size (not including TCP header)
+; ecx has packet data size (including tcp header)
+; esi has packet header size
 ; rbp points to the top of the local variable table in processPacket
 ; all registers are caller preserved
 ; packet has been checksum verified and the TCP header is at least 5 dwords
@@ -6696,6 +7427,60 @@ handleTCPPacket:
 	cmp ecx, edx
 	jne .end
 .portValid:
+	
+;%define PACKET_CORRUPTION_DEBUG
+%ifdef PACKET_CORRUPTION_DEBUG
+.tryCorrupt:
+.randGen1:
+	rdrand rcx
+	jnc .randGen1
+	test rcx, 0b11
+	jnz .noPacketCorruption
+	shr rcx, 2
+	; Flip a random bit
+	lzcnt r10d, r9d
+	mov r11d, 32
+	sub r11d, r10d
+	mov r10d, 1
+	xchg rcx, r11
+	shl r10d, cl
+	xchg rcx, r11
+	sub r10d, 1
+	mov r11, rcx
+	and r11d, r10d
+	cmp r11d, r9d
+	jb .packetCorruptInRange
+	shr r11d, 1
+.packetCorruptInRange:
+	shr rcx, 32
+	and ecx, 0b111
+	mov r10d, 1
+	shl r10d, cl
+	xor [rax + r11], r10b
+	push rax
+	lea rax, [corruptingBitStr]
+	call debugPrint
+	lea rax, [r11 * 8 + rcx]
+	call debugPrintInteger
+	lea rax, [outOfStr]
+	call debugPrint
+	lea rax, [r9d * 8]
+	call debugPrintlnInteger
+	pop rax
+	jmp .tryCorrupt
+.noPacketCorruption:
+%endif
+
+;%define PACKET_DROP_DEBUG
+%ifdef PACKET_DROP_DEBUG
+.randGen2:
+	rdrand rcx
+	jnc .randGen2
+	test rcx, 0b111
+	jz .end
+%endif
+
+	sub r9d, esi ; Remove header from data size to get only length of user data
 	
 	; Swap packet variables to something we can use
 	movbe ecx, [rax + TCP_HEADER_SEQUENCE_NUM_OFFSET]
@@ -6886,10 +7671,8 @@ handleTCPPacket:
 	call tcpProcessExtensions
 	movzx ecx, word [rax + TCP_HEADER_WINDOW_OFFSET]
 	mov [rbx + TCP_TCB_SEND_WINDOW_OFFSET], ecx
-	mov ecx, r10d ; get packet.seq
-	mov ecx, r11d ; packet.ack
-	mov [rbx + TCP_TCB_SEND_SEQUENCE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], ecx
-	mov [rbx + TCP_TCB_SEND_ACKNOWLEDGE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], ecx
+	mov [rbx + TCP_TCB_SEND_SEQUENCE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], r10d ; packet.seq
+	mov [rbx + TCP_TCB_SEND_ACKNOWLEDGE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET], r11d ; packet.ack
 	mov ecx, 5000 ; 5 seconds
 	call tcpResetDeletionTimeout
 	mov ecx, 0xFFFFFFFF
@@ -7070,9 +7853,6 @@ handleTCPPacket:
 	mov dword [rbx + TCP_TCB_ROUND_TRIP_TIMER_OFFSET], -1
 .roundTripTimeNotMeasured:
 	
-	mov ecx, 10000 ; 10 second user timeout
-	call tcpResetDeletionTimeout
-	
 	xor esi, esi ; sendWindowUpdated = false
 	cmp dword [rbx + TCP_TCB_STATE_OFFSET], TCP_STATE_SYN_RECEIVED
 	jne .currentStateNotSynReceived
@@ -7108,6 +7888,7 @@ handleTCPPacket:
 	sub ecx, [rbx + TCP_TCB_SEND_NEXT_OFFSET]
 	cmp ecx, 0
 	jng .ackWasNotGreaterThanSendNext
+	; Other side tried acking something we didn't send
 	mov edx, TCP_HEADER_FLAG_ACKNOWLEDGE ; flags
 	mov edi, [rbx + TCP_TCB_SEND_NEXT_OFFSET] ; seq
 	mov esi, [rbx + TCP_TCB_RECEIVE_NEXT_OFFSET] ; ack
@@ -7119,6 +7900,8 @@ handleTCPPacket:
 	sub ecx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
 	cmp ecx, 0
 	jnge .ackWasNotGreaterThanOrEqualToSendUnacknowledged
+	mov ecx, 10000 ; 10 second user timeout
+	call tcpResetDeletionTimeout
 	mov ecx, r10d ; packet.seq
 	sub ecx, [rbx + TCP_TCB_SEND_SEQUENCE_NUMBER_FOR_LAST_WINDOW_UPDATE_OFFSET]
 	cmp ecx, 0
@@ -7532,22 +8315,23 @@ handleTCPPacket:
 	jnz .trySendDataWithNewSendWindow
 	jmp .end
 .duplicateAckCountIs3:
+	; Fast retransmission
 	mov ecx, [rbx + TCP_TCB_SEND_NEXT_OFFSET]
 	sub ecx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
-	shr ecx, 1
+	shr ecx, 1 ; congestionWindow = (sendNext - sendUnacknowledged) / 2
 	mov edx, [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET]
 	add edx, edx
 	cmp ecx, edx
-	cmovl ecx, edx
+	cmovl ecx, edx ; congestionWindow = max(congestionWindow, sendMaximumSegmentSize * 2)
 	mov [rbx + TCP_TCB_SLOW_START_THRESHOLD_OFFSET], ecx ; slowStartThreshold = max((sendNext - sendUnacknowledged) / 2, 2 * sendMaximumSegmentSize)
 	mov edx, [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET]
 	lea edx, [edx + edx * 2]
-	add ecx, edx
+	add ecx, edx ; congestionWindow += sendMaximumSegmentSize * 3
 	mov [rbx + TCP_TCB_CONGESTION_WINDOW_OFFSET], ecx
 	mov edi, [rbx + TCP_TCB_RESEND_NEXT_OFFSET]
 	mov edx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
 	mov [rbx + TCP_TCB_RESEND_NEXT_OFFSET], edx
-	; TODO ...
+	; TODO ... ; (later) What does this mean? Why did I just say "TODO ..."?
 	mov edx, ecx
 	mov ecx, 1
 	call tcpSendData
@@ -7604,18 +8388,19 @@ tcpHandleTimeout:
 	cmp ecx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
 	je .allSentDataAcknowledged
 	; Algorithm from RFC 5681 "TCP Congestion Control"
+	mov ecx, [rbx + TCP_TCB_RESEND_NEXT_OFFSET]
 	sub ecx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
 	shr ecx, 1
 	mov edx, [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET]
 	add edx, edx
 	cmp ecx, edx
 	cmovl ecx, edx
-	mov [rbx + TCP_TCB_SLOW_START_THRESHOLD_OFFSET], ecx ; slowStartThreshold = max((sendNext - sendUnacknowledged) / 2, 2 * sendMaximumSegmentSize);
+	mov [rbx + TCP_TCB_SLOW_START_THRESHOLD_OFFSET], ecx ; slowStartThreshold = max((resendNext - sendUnacknowledged) / 2, 2 * sendMaximumSegmentSize);
 	; It seems a bit extreme to set the congestion window all the way back to one segment
 	; when a single packet times out, but that's what the RFC says.
 	mov ecx, [rbx + TCP_TCB_SEND_MAXIMUM_SEGMENT_SIZE_OFFSET]
 	mov [rbx + TCP_TCB_CONGESTION_WINDOW_OFFSET], ecx
-	mov ecx, [rbx + TCP_TCB_SEND_NEXT_OFFSET]
+	mov ecx, [rbx + TCP_TCB_RESEND_NEXT_OFFSET]
 	sub ecx, [rbx + TCP_TCB_SEND_UNACKNOWLEDGED_OFFSET]
 	mov edx, [rbx + TCP_TCB_SEND_DATA_POS_OFFSET]
 	sub edx, ecx
@@ -8331,7 +9116,6 @@ processPacket:
 	cmp cx, 0xFFFF
 	jne .end ; Checksum incorrect
 	mov ecx, edi ; Put packet size in ecx for handleTCPPacket
-	sub ecx, esi ; handleTCPPacket expects the size without the header
 	mov rax, rbx ; Restore base address to rax
 	; Checksum complete
 	movbe dx, [rax + TCP_HEADER_SRC_PORT_OFFSET] ; Get src port
@@ -8419,7 +9203,10 @@ loadAndExecuteUserProgram:
 	add rcx, rax ; program offset + section offset + virtual size
 .sectionVirtualMapLoop:
 	call mapPhysicalToVirtual
-	jc .fail
+	jnc .sectionVirtualMapLoopMemMapSuccess
+	pop rax
+	jmp .fail
+.sectionVirtualMapLoopMemMapSuccess:
 	add rax, 4096
 	cmp rax, rcx
 	jb .sectionVirtualMapLoop
@@ -8605,7 +9392,7 @@ loadAndExecuteUserProgram:
 ; 5: block index if opened, or TCP_CONNECTION_BLOCK_INVALID_IDX
 ; 6: <None>
 ; 7: amount of data accepted, or -1 if the block state was invalid
-; 8: amount of data put into buffer, or -1 if the block state was invalid
+; 8: (amount of data put into receive buffer) | ((data left in tcp buffer after transaction) << 32), or -1 if the block state was invalid
 ; 9: <None>
 ; 10: <None>
 ; 11: (connectionIdx << 32) | (localPort << 16) | flags
@@ -8784,7 +9571,7 @@ syscallHandler:
 	mov ebx, [rcx + SYSCALL_TCP_RECEIVE_ARGS_BLOCK_INDEX_OFFSET]
 	mov rcx, [rcx + SYSCALL_TCP_RECEIVE_ARGS_BUFFER_ADDRESS_OFFSET]
 	call tcpReceive
-	movsxd rax, edx
+	mov rax, rdx
 	pop rdi
 	pop rsi
 	pop rbx
@@ -8846,8 +9633,9 @@ syscallHandler:
 .shutdownNotHlt:
 	cmp edx, SYSCALL_SHUTDOWN_CODE_RESTART
 	jne .shutdownNotRestart
-	; TODO handle restart
 	cli
+	; Won't actually restart on all computers. Turns out, restarting and shutting down from software is kind of hard.
+	call systemRestartOrShutdown
 	jmp systemIdle
 .shutdownNotRestart:
 	cmp edx, SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP

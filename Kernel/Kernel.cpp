@@ -4,6 +4,7 @@
 #include "TLS.h"
 #include "ACME.h"
 #include "CommandMode.h"
+#include "Blog.h"
 
 const char penguin[]{ R"(
              . --- .
@@ -22,8 +23,74 @@ const char penguin[]{ R"(
           `'         `'
 )"};
 
-const char MainPageHTML[] {
-#include "web/MainPage.html"
+const char BLOG_PAGE_HEADER[] {
+R"(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>DrillEngine</title>
+	<meta charset="utf-8" name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		* {
+			margin: 0;
+			font-family: -apple-system,system-ui,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+			color: #C9D1D9;
+		}
+		header {
+			text-align: center;
+			font-size: 30px;
+		}
+		body {
+			background-color: #121212;
+			font-size: 14px;
+
+		}
+		.content {
+			background-color: #282828;
+			padding: 32px;
+			padding-top: 20px;
+			width: 600px;
+			margin-left: auto;
+			margin-right: auto;
+			line-height: 22px;
+		}
+		.content a:link {
+			color: #0077AA;
+		}
+		.content a:visited {
+			color: #685098;
+		}
+		h1, h2, h3 {
+			text-align: center;
+			line-height: 1.2;
+			margin-bottom: 10px;
+			margin-top: 10px;
+		}
+		p {
+			margin-bottom: 5px;
+		}
+	</style>
+</head>
+<body>
+	<header>
+		<h2 style="background-color: #6F1010; margin-top: 0; margin-bottom: 0; padding-top: 10px; padding-bottom: 20px"><a href="/" style="text-decoration: none; padding: 5px">DrillEngine Blog</a></h2>
+		<div style="background-color: #3F1818; margin-left: auto; margin-right: auto; font-size: 15px;">
+			<h2 style="display: inline-block"><a href="/MainPage.html" style="text-decoration: none; padding: 10px">Home</a></h2>
+			<h2 style="display: inline-block"><a href="/About.html" style="text-decoration: none; padding: 10px">About</a></h2>
+			<h2 style="display: inline-block"><a href="/Posts.html" style="text-decoration: none; padding: 10px">Posts</a></h2>
+		</div>
+	</header>
+	<div class="content">
+)"
+};
+
+const char BLOG_PAGE_FOOTER[]{
+R"(
+	</div>
+</body>
+
+</html>
+)"
 };
 
 X509Certificate cert;
@@ -71,37 +138,6 @@ ACMEAccount& get_server_acme_account() {
 	return acmeAgent.currentAccount;
 }
 
-void run_test_get_request() {
-	U32 ip = 209 << 0 | 97 << 8 | 153 << 16 | 37 << 24;
-	U16 remotePort = 80;
-	U16 localPort = currentConnectionPort;
-	U32 tcpResult = g_syscallProc(SYSCALL_TCP_OPEN, U64(ip) << TCP_OPEN_SYSCALL_ARG_REMOTE_IP_SHIFT | U64(remotePort) << TCP_OPEN_SYSCALL_ARG_REMOTE_PORT_SHIFT | U64(localPort) << TCP_OPEN_SYSCALL_ARG_LOCAL_PORT_SHIFT);
-	const char* data = "GET / HTTP/1.1\r\nHost: webserver.drillengine.net\r\nConnection: close\r\n\r\n";
-	SyscallTCPSendArgs sendArgs;
-	sendArgs.bufferAddress = U64(data);
-	sendArgs.bufferSize = strlen(data);
-	sendArgs.blockIndex = tcpResult;
-	g_syscallProc(SYSCALL_TCP_SEND, U64(&sendArgs));
-	while (true) {
-		I64 result;
-		do {
-			char buffer[1025];
-			SyscallTCPReceiveArgs recvArgs;
-			recvArgs.bufferAddress = U64(buffer);
-			recvArgs.bufferSize = 1024;
-			recvArgs.blockIndex = tcpResult;
-			result = g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs));
-			if (result >= 0) {
-				buffer[result] = 0;
-				print(buffer);
-			} else {
-				g_syscallProc(SYSCALL_TCP_CLOSE, tcpResult);
-			}
-		} while (result > 0);
-		g_syscallProc(SYSCALL_SHUTDOWN, SYSCALL_SHUTDOWN_CODE_HLT);
-	}
-}
-
 // Some message about our outbound connection
 void handle_client_connection_notification(U16 connectionIdx, U32 tcpFlags) {
 	if (testClient.state == TLS_CONNECTION_STATE_CLOSED) {
@@ -147,7 +183,7 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 		client.init(connectionIdx);
 	}
 
-	client.tlsClient.receive_data();
+	bool couldReceiveMoreData = client.tlsClient.receive_data();
 	HTTPReader& http = client.httpReader;
 	if (client.tlsClient.state == TLS_CONNECTION_STATE_CONNECTED) {
 		if (http.pos == 0 && client.tlsClient.receiveBufferUserDataEnd >= COMMAND_MODE_MAGIC_LENGTH && memcmp(client.tlsClient.receiveBuffer, COMMAND_MODE_MAGIC, COMMAND_MODE_MAGIC_LENGTH) == 0) {
@@ -156,7 +192,12 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 			print("Entering command mode\n");
 		}
 		if (client.commandMode) {
+		handleCommandData:;
 			handle_command_mode_client(client.tlsClient, client.commandModeState);
+			if (couldReceiveMoreData) {
+				couldReceiveMoreData = client.tlsClient.receive_data();
+				goto handleCommandData;
+			}
 		} else {
 			if (client.tlsClient.receiveBufferUserDataEnd != http.length) {
 				http.length = client.tlsClient.receiveBufferUserDataEnd;
@@ -187,16 +228,22 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 				if (client.requestMethod != HTTP_METHOD_GET) {
 					client.tlsClient.write_str("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
 				} else {
-					if (client.requestTarget.data_range(http.src) == "/") {
+					StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
+					if (requestPath == "/"a) {
+						requestPath = "/MainPage.html"a;
+					}
+					if (BlogEntry* entry = get_blog_entry(requestPath)) {
 						char header[1024];
 						char* headerPtr = header;
 						headerPtr = strcpy(headerPtr, "HTTP/1.1 200 OK\r\nContent-Length: ");
-						headerPtr += ascii_base10_encode_u32(headerPtr, 1024 - (headerPtr - header), sizeof(MainPageHTML));
+						headerPtr += ascii_base10_encode_u32(headerPtr, 1024 - (headerPtr - header), sizeof(BLOG_PAGE_HEADER) + entry->content.length + sizeof(BLOG_PAGE_FOOTER));
 						headerPtr = strcpy(headerPtr, "\r\n\r\n");
 						client.tlsClient.write_bytes(header, headerPtr - header);
-						client.tlsClient.queue_buffer_to_send(MainPageHTML, sizeof(MainPageHTML));
+						client.tlsClient.queue_buffer_to_send(BLOG_PAGE_HEADER, sizeof(BLOG_PAGE_HEADER));
+						client.tlsClient.queue_buffer_to_send(entry->content.str, entry->content.length);
+						client.tlsClient.queue_buffer_to_send(BLOG_PAGE_FOOTER, sizeof(BLOG_PAGE_FOOTER));
 					} else {
-						client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\n\r\n");
+						client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
 					}
 				}
 				client.tlsClient.error_alert(TLS_ALERT_CLOSE_NOTIFY);
@@ -248,6 +295,8 @@ __declspec(dllexport) void __vectorcall server_main(SyscallProc syscallProc) {
 	//run_test_get_request();
 	//run_test_https_get_request();
 
+	disk_deserialize_blog();
+
 	while (true) {
 		// Pump TCP message queue
 		while (true) {
@@ -285,6 +334,7 @@ __declspec(dllexport) void __vectorcall server_main(SyscallProc syscallProc) {
 			//print("End of connection processing.\n");
 		}
 
+		blog_write_dirty_data();
 		
 		// Pump completed disk command message queue
 		while (true) {

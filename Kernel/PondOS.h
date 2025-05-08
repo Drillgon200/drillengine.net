@@ -16,6 +16,8 @@
 #define USER_PROGRAM_DISK_OFFSET (512 * 1024)
 #define DISK_PROTECTED_AREA_END (1024 * 1024)
 
+#define USER_PROGRAM_MEMORY_HEAP_OFFSET 0x14000000000
+
 enum DiskError : U32 {
 	DISK_ERROR_SUCCESS = 0,
 	DISK_ERROR_COMMAND_TYPE_INVALID = 1,
@@ -74,7 +76,27 @@ enum SyscallShutdownCode {
 #define DNS_LOOKUP_RESULT_SUCCESS 2
 #define DNS_LOOKUP_RESULT_FAILURE 3
 
+#define PAGE_PRESENT (1 << 0)
+#define PAGE_WRITE (1 << 1)
+#define PAGE_USER_SUPERVISOR (1 << 2)
+#define PAGE_WRITE_THROUGH (1 << 3)
+#define PAGE_CACHE_DISABLE (1 << 4)
+#define PAGE_ACCESSED (1 << 5)
+#define PAGE_DIRTY (1 << 6)
+#define PAGE_SIZE (1 << 7)
+#define PAGE_GLOBAL (1 << 8)
+#define PAGE_EXECUTE_DISABLE (1ull << 63)
+
+#define SYSCALL_VIRTUAL_MAP_SUCCESS 0
+#define SYSCALL_VIRTUAL_MAP_FAILURE 1
+
 #pragma pack(push, 1)
+
+struct SyscallVirtualMapArgs {
+	U64 address;
+	U64 length;
+	U64 pageFlags;
+};
 struct SyscallDiskCommandArgs {
 	U32 type;
 	U32 sectorCount;

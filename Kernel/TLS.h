@@ -368,7 +368,8 @@ struct TLSConnection {
 	// Called from errors processing received messages or from a user close
 	void error_alert(TLSAlertDescription alert) {
 		if (alert != TLS_ALERT_CLOSE_NOTIFY) {
-			TLS_DEBUG_LOG("ALERT TRIGGERED\n", 1);
+			TLS_DEBUG_LOG("ALERT TRIGGERED: ", 1);
+			TLS_DEBUG_LOG_NUM(alert, 1);
 		}
 		if (state == TLS_CONNECTION_STATE_CLOSED || state == TLS_CONNECTION_STATE_ALERT_PENDING || state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
 			return;
@@ -395,6 +396,7 @@ struct TLSConnection {
 			state = TLS_CONNECTION_STATE_CLOSE_PENDING;
 		} else {
 			state = TLS_CONNECTION_STATE_ALERT_PENDING;
+			send_data();
 		}
 	}
 
@@ -1849,14 +1851,18 @@ struct TLSConnection {
 			recvArgs.bufferAddress = U64(buffer);
 			recvArgs.bufferSize = bufferSize;
 			recvArgs.blockIndex = tcpConnection;
-			I64 amountReceived = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
-			if (amountReceived > 0) {
-				currentRecordReceiveLength += amountReceived;
-				if (currentRecordReceiveLength > sizeof(TLSRecordHeader)) {
-					receiveBufferDataEnd += amountReceived;
+			I64 receiveResult = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
+			if (receiveResult != -1) {
+				U32 dataReceived = U32(receiveResult);
+				U32 dataLeftInTCPBuffer = U32(U64(receiveResult) >> 32);
+				if (dataReceived != 0) {
+					currentRecordReceiveLength += dataReceived;
+					if (currentRecordReceiveLength > sizeof(TLSRecordHeader)) {
+						receiveBufferDataEnd += dataReceived;
+					}
+				} else {
+					break;
 				}
-			} else if (amountReceived == 0) {
-				break;
 			} else {
 				TLS_DEBUG_LOG("Connection closed\n", 2);
 				state = TLS_CONNECTION_STATE_CLOSED;
@@ -1905,7 +1911,7 @@ struct TLSConnection {
 		if (state == TLS_CONNECTION_STATE_CLOSED) {
 			return;
 		}
-		if (sendQueueWritePos == sendQueueReadPos && sendRecordPos == sendRecordDataEnd && !shouldKeyUpdate) {
+		if (sendQueueWritePos == sendQueueReadPos && sendRecordPos == sendRecordDataEnd && !shouldKeyUpdate && state != TLS_CONNECTION_STATE_ALERT_PENDING) {
 			// Nothing to send
 			if (state == TLS_CONNECTION_STATE_CLOSE_PENDING) {
 				close_no_alert();

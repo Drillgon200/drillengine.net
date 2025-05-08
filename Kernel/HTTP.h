@@ -455,10 +455,12 @@ struct HTTPServer {
 		recvArgs.bufferAddress = U64(&connection.receiveBuffer[connection.receivePos]);
 		recvArgs.bufferSize = HTTPConnection::receiveBufferCap - connection.receivePos;
 		recvArgs.blockIndex = connection.tcpConnection;
-		I64 dataInBuffer = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
-		if (dataInBuffer >= 0) {
-			connection.receivePos += dataInBuffer;
-		} else { // dataInBuffer < 0
+		I64 receiveResult = I64(g_syscallProc(SYSCALL_TCP_RECEIVE, U64(&recvArgs)));
+		if (receiveResult != -1) {
+			U32 dataReceived = U32(receiveResult);
+			U32 dataLeftInTCPBuffer = U32(U64(receiveResult) >> 32);
+			connection.receivePos += dataReceived;
+		} else {
 			close_client(connection);
 		}
 	}

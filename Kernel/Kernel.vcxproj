@@ -181,6 +181,7 @@
     <ClInclude Include="AES.h" />
     <ClInclude Include="ASN1.h" />
     <ClInclude Include="BigInteger.h" />
+    <ClInclude Include="Blog.h" />
     <ClInclude Include="CLibDefs.h" />
     <ClInclude Include="CommandMode.h" />
     <ClInclude Include="CryptoHash.h" />
