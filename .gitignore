@@ -1,0 +1,12 @@
+Kernel/.vs/
+Kernel/Kernel/
+Kernel/x64/
+bootloader/bootloader
+bootloader/nasm.exe
+build/OSBuild/.vs
+build/OSBuild/OSBuild
+build/OSBuild/x64
+build/bootloader.map
+build/disk.img
+build/netcap.pcap
+build/user_program.dxe
