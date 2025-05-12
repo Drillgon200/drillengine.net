@@ -6,10 +6,6 @@
 // I don't like json much, but that's what the ACME protocol uses, so I guess I'll cop
 // Implemented from RFC 8259
 
-// Use this type to indicate the range represents JSON data
-typedef Range JSONRange;
-typedef DataRange JSONDataRange;
-
 struct JSONReader {
 	const char* data;
 	U32 cap;
@@ -74,14 +70,14 @@ struct JSONReader {
 		read_token(',');
 	}
 
-	bool read_string(Range* str) {
+	bool read_string(StrA* str) {
 		VERIFY_RETURN(!errored, false);
 		U32 prevPos = pos;
 		if (!read_token('"')) {
 			return false;
 		}
 		if (str) {
-			str->start = pos;
+			str->str = data + pos;
 		}
 		while (pos < cap && data[pos] != '"') {
 			if ((pos + 1) < cap && data[pos] == '\\' && data[pos + 1] == '"') {
@@ -94,13 +90,13 @@ struct JSONReader {
 			return false;
 		}
 		if (str) {
-			str->end = pos;
+			str->length = data + pos - str->str;
 		}
 		pos++;
 		return true;
 	}
 
-	bool read_field_name(Range* fieldName) {
+	bool read_field_name(StrA* fieldName) {
 		VERIFY_RETURN(!errored, false);
 		U32 prevPos = pos;
 		if (!read_string(fieldName)) {
@@ -113,13 +109,17 @@ struct JSONReader {
 		return true;
 	}
 
-	bool read_string_field(Range* fieldValue) {
+	bool read_string_field(StrA* fieldValue) {
 		VERIFY_RETURN(!errored, false);
 		if (!read_string(fieldValue)) {
 			return false;
 		}
 		read_token(',');
 		return true;
+	}
+	StrA consume_string_field() {
+		StrA s{};
+		return read_string_field(&s) ? s : (errored = true, StrA{});
 	}
 
 	bool match_string(const char* str) {

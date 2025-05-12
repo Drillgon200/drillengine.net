@@ -2114,6 +2114,7 @@ struct TLSConnection {
 			}
 			send_data();
 		}
+		return *this;
 	}
 
 	TLSConnection& write_str(const char* str) {

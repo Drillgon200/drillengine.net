@@ -244,26 +244,26 @@ struct ACMEAgent {
 		// but I don't see a way to unduplicate it that I like
 		JSONReader json; json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			if (jsonFieldName.data_range(json.data) == "status") {
+			if (jsonFieldName == "status"a) {
 				VERIFY_RETURN(json.read_string_field(&jsonFieldValue), false);
-				if (jsonFieldValue.data_range(json.data) == "valid") {
+				if (jsonFieldValue == "valid"a) {
 					certIssued = true;
-				} else if (jsonFieldValue.data_range(json.data) == "processing") {
+				} else if (jsonFieldValue == "processing"a) {
 					// Check back in a few seconds.
 					certificateProcessingNextQueryTimeMilliseconds = current_time_millis() + 1000;
 				} else {
 					VERIFY_RETURN(false, false);
 				}
-				VERIFY_RETURN(jsonFieldValue.data_range(json.data) == "valid", false);
-			} else if (jsonFieldName.data_range(json.data) == "certificate") {
+				VERIFY_RETURN(jsonFieldValue == "valid"a, false);
+			} else if (jsonFieldName == "certificate"a) {
 				VERIFY_RETURN(json.read_string_field(&jsonFieldValue), false);
-				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length() + 1 <= urlBufferSize, false);
+				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length + 1 <= urlBufferSize, false);
 				urlBufferCertDownloadOffset = urlBufferPos;
-				memcpy(urlBuffer + urlBufferPos, json.data + jsonFieldValue.start, jsonFieldValue.length());
-				urlBufferPos += jsonFieldValue.length();
+				memcpy(urlBuffer + urlBufferPos, jsonFieldValue.str, jsonFieldValue.length);
+				urlBufferPos += jsonFieldValue.length;
 				urlBuffer[urlBufferPos++] = '\0';
 			} else {
 				json.skip_value();
@@ -301,14 +301,14 @@ struct ACMEAgent {
 
 		JSONReader json; json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			if (jsonFieldName.data_range(json.data) == "status") {
+			if (jsonFieldName == "status"a) {
 				VERIFY_RETURN(json.read_string_field(&jsonFieldValue), false);
-				if (jsonFieldValue.data_range(json.data) == "valid") {
+				if (jsonFieldValue == "valid"a) {
 					certIssued = true;
-				} else if (jsonFieldValue.data_range(json.data) == "processing") {
+				} else if (jsonFieldValue == "processing"a) {
 					// Haven't failed yet, but need to check back later
 					// I'm not sure why certificate processing even takes significant time
 					// Maybe the cert has to propagate to a bunch of servers or something?
@@ -318,12 +318,12 @@ struct ACMEAgent {
 				} else {
 					VERIFY_RETURN(false, false);
 				}
-			} else if (jsonFieldName.data_range(json.data) == "certificate") {
+			} else if (jsonFieldName == "certificate"a) {
 				VERIFY_RETURN(json.read_string_field(&jsonFieldValue), false);
-				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length() + 1 <= urlBufferSize, false);
+				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length + 1 <= urlBufferSize, false);
 				urlBufferCertDownloadOffset = urlBufferPos;
-				memcpy(urlBuffer + urlBufferPos, json.data + jsonFieldValue.start, jsonFieldValue.length());
-				urlBufferPos += jsonFieldValue.length();
+				memcpy(urlBuffer + urlBufferPos, jsonFieldValue.str, jsonFieldValue.length);
+				urlBufferPos += jsonFieldValue.length;
 				urlBuffer[urlBufferPos++] = '\0';
 			} else {
 				json.skip_value();
@@ -353,53 +353,51 @@ struct ACMEAgent {
 
 		JSONReader json; json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			DataRange fieldName = jsonFieldName.data_range(json.data);
-			if (fieldName == "challenges") {
+			if (jsonFieldName == "challenges"a) {
 				json.begin_array();
 				B32 hasHTTP01Challenge = false;
 				while (json.read_token('{')) {
-					Range jsonType{};
-					Range jsonURL{};
-					Range jsonToken{};
+					StrA jsonType{};
+					StrA jsonURL{};
+					StrA jsonToken{};
 					while (json.read_field_name(&jsonFieldName)) {
-						fieldName = jsonFieldName.data_range(json.data);
-						if (fieldName == "type") {
+						if (jsonFieldName == "type"a) {
 							VERIFY_RETURN(json.read_string_field(&jsonType), false);
-						} else if (fieldName == "url") {
+						} else if (jsonFieldName == "url"a) {
 							VERIFY_RETURN(json.read_string_field(&jsonURL), false);
-						} else if (fieldName == "token") {
+						} else if (jsonFieldName == "token"a) {
 							VERIFY_RETURN(json.read_string_field(&jsonToken), false);
 						} else {
 							json.skip_value();
 						}
 					}
 					json.end_object();
-					if (jsonType.data_range(json.data) == "http-01") {
-						VERIFY_RETURN(jsonURL.length() != 0 && jsonToken.length() != 0, false);
+					if (jsonType == "http-01"a) {
+						VERIFY_RETURN(jsonURL.length != 0 && jsonToken.length != 0, false);
 						// The servable url is in the format /.well-known/acme-challenge/<token>.<base64url(Thumbprint(accountKey))>
 						const char* directoryBase = "/.well-known/acme-challenge/";
 						U32 directoryBaseLength = strlen(directoryBase);
-						U32 servableTokenURLSize = directoryBaseLength + jsonToken.length() + 1 + base64url_encoded_size(SHA256_HASH_SIZE);
-						VERIFY_RETURN(jsonURL.length() + 1 + servableTokenURLSize + 1 < urlBufferSize, false)
-							hasHTTP01Challenge = true;
+						U32 servableTokenURLSize = directoryBaseLength + jsonToken.length + 1 + base64url_encoded_size(SHA256_HASH_SIZE);
+						VERIFY_RETURN(jsonURL.length + 1 + servableTokenURLSize + 1 < urlBufferSize, false);
+						hasHTTP01Challenge = true;
 						if (urlBufferChallengeURLOffset != -1) {
 							// Free previous challenge url just in case the json is malformed and there's more than one http-01
 							urlBufferPos = urlBufferChallengeURLOffset;
 						}
 						urlBufferChallengeURLOffset = urlBufferPos;
-						memcpy(urlBuffer + urlBufferChallengeURLOffset, json.data + jsonURL.start, jsonURL.length());
-						urlBufferPos += jsonURL.length();
+						memcpy(urlBuffer + urlBufferChallengeURLOffset, jsonURL.str, jsonURL.length);
+						urlBufferPos += jsonURL.length;
 						urlBuffer[urlBufferPos++] = '\0';
 						urlBufferChallengeTokenServableURLOffset = urlBufferPos;
 						memcpy(urlBuffer + urlBufferChallengeTokenServableURLOffset, directoryBase, directoryBaseLength);
 						urlBufferPos += directoryBaseLength;
 						urlBufferChallengeTokenOffset = urlBufferPos;
-						urlBufferChallengeTokenLength = jsonToken.length();
-						memcpy(urlBuffer + urlBufferChallengeTokenOffset, json.data + jsonToken.start, jsonToken.length());
-						urlBufferPos += jsonToken.length();
+						urlBufferChallengeTokenLength = jsonToken.length;
+						memcpy(urlBuffer + urlBufferChallengeTokenOffset, jsonToken.str, jsonToken.length);
+						urlBufferPos += jsonToken.length;
 						urlBuffer[urlBufferPos++] = '.';
 						U32 thumbprintSize = base64url_encoded_size(SHA256_HASH_SIZE);
 						B32 thumbprintComputationSuccess = compute_jwk_thumbprint_base64(urlBuffer + urlBufferPos, &thumbprintSize, currentAccount.signingKey.publicKey);
@@ -463,18 +461,16 @@ struct ACMEAgent {
 		memcpy(nonceBuffer, httpReader.src + replayNonce.value.start, nonceLength = replayNonce.value.length());
 
 		JSONReader json; json.init(responseData, responseDataLength);
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		json.begin_object();
 		while (json.read_field_name(&jsonFieldName)) {
-			DataRange fieldName = jsonFieldName.data_range(json.data);
-			if (fieldName == "status") {
+			if (jsonFieldName == "status"a) {
 				VERIFY_RETURN(json.read_string_field(&jsonFieldValue), false);
-				DataRange status = jsonFieldValue.data_range(json.data);
-				if (status == "valid") {
+				if (jsonFieldValue == "valid"a) {
 					currentAuthorizationComplete = true;
 					httpServer.close();
-				} else if (status == "invalid") {
+				} else if (jsonFieldValue == "invalid"a) {
 					// Something went wrong
 					VERIFY_RETURN(false, false);
 				} else {
@@ -527,34 +523,33 @@ struct ACMEAgent {
 		B32 hasAuthorizations = false;
 		B32 hasFinalize = false;
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			DataRange name = jsonFieldName.data_range(json.data);
-			if (name == "status") {
+			if (jsonFieldName == "status"a) {
 				B32 isStringField = json.read_string_field(&jsonFieldValue);
 				VERIFY_RETURN(isStringField, false);
-				VERIFY_RETURN(jsonFieldValue.data_range(json.data) == "pending" || jsonFieldValue.data_range(json.data) == "ready", false);
-			} else if (name == "authorizations") {
+				VERIFY_RETURN(jsonFieldValue == "pending"a || jsonFieldValue == "ready"a, false);
+			} else if (jsonFieldName == "authorizations"a) {
 				hasAuthorizations = true;
 				json.begin_array();
 				urlBufferAuthorizationOffset = urlBufferPos;
 				while (json.read_string_field(&jsonFieldValue)) {
-					VERIFY_RETURN(urlBufferPos + jsonFieldValue.length() + 1 <= urlBufferSize, false);
-					memcpy(urlBuffer + urlBufferPos, json.data + jsonFieldValue.start, jsonFieldValue.length());
-					urlBufferPos += jsonFieldValue.length();
+					VERIFY_RETURN(urlBufferPos + jsonFieldValue.length + 1 <= urlBufferSize, false);
+					memcpy(urlBuffer + urlBufferPos, jsonFieldValue.str, jsonFieldValue.length);
+					urlBufferPos += jsonFieldValue.length;
 					urlBuffer[urlBufferPos++] = '\0';
 					numAuthorizations++;
 				}
 				json.end_array();
-			} else if (name == "finalize") {
+			} else if (jsonFieldName == "finalize"a) {
 				hasFinalize = true;
 				B32 isStringField = json.read_string_field(&jsonFieldValue);
 				VERIFY_RETURN(isStringField, false);
-				VERIFY_RETURN(jsonFieldValue.length() + 1 < urlBufferSize, false);
+				VERIFY_RETURN(jsonFieldValue.length + 1 < urlBufferSize, false);
 				urlBufferFinalizeOffset = urlBufferPos;
-				memcpy(urlBuffer + urlBufferPos, json.data + jsonFieldValue.start, jsonFieldValue.length());
-				urlBufferPos += jsonFieldValue.length();
+				memcpy(urlBuffer + urlBufferPos, jsonFieldValue.str, jsonFieldValue.length);
+				urlBufferPos += jsonFieldValue.length;
 				urlBuffer[urlBufferPos++] = '\0';
 			} else {
 				json.skip_value();
@@ -578,7 +573,7 @@ struct ACMEAgent {
 	"termsOfServiceAgreed": true,
 	"contact": [
 		"mailto:drillgon200@gmail.com"
-	]			
+	]
 })";
 		currentAccount.accountURLLength = 0;
 		B32 errored = post_jws_json(urlBuffer + urlBufferNewAccountOffset, strlen(urlBuffer + urlBufferNewAccountOffset), jsonAccountPayload, strlen(jsonAccountPayload));
@@ -596,14 +591,14 @@ struct ACMEAgent {
 		B32 accountValid = false;
 		JSONReader json; json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			if (jsonFieldName.data_range(json.data) == "status") {
+			if (jsonFieldName == "status"a) {
 				VERIFY_RETURN(!accountValid, false);
 				B32 isStringField = json.read_string_field(&jsonFieldValue);
 				VERIFY_RETURN(isStringField, false);
-				accountValid = jsonFieldValue.data_range(json.data) == "valid";
+				accountValid = jsonFieldValue == "valid"a;
 			} else {
 				json.skip_value();
 			}
@@ -636,14 +631,13 @@ struct ACMEAgent {
 		JSONReader json;
 		json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			DataRange name = jsonFieldName.data_range(json.data);
-			if (name == "status") {
+			if (jsonFieldName == "status"a) {
 				B32 isStringField = json.read_string_field(&jsonFieldValue);
 				if (isStringField) {
-					statusValid = jsonFieldValue.data_range(json.data) == "valid";
+					statusValid = jsonFieldValue == "valid"a;
 				} else {
 					json.skip_value();
 				}
@@ -692,22 +686,21 @@ struct ACMEAgent {
 		JSONReader json;
 		json.init(responseData, responseDataLength);
 		json.begin_object();
-		Range jsonFieldName;
-		Range jsonFieldValue;
+		StrA jsonFieldName;
+		StrA jsonFieldValue;
 		while (json.read_field_name(&jsonFieldName)) {
-			DataRange nameDataRange = jsonFieldName.data_range(json.data);
-			if (nameDataRange == "newAccount" ||
-				nameDataRange == "newNonce" ||
-				nameDataRange == "newOrder") {
+			if (jsonFieldName == "newAccount"a ||
+				jsonFieldName == "newNonce"a ||
+				jsonFieldName == "newOrder"a) {
 				B32 isStringField = json.read_string_field(&jsonFieldValue);
 				VERIFY_RETURN(isStringField, false);
-				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length() + 1 <= urlBufferSize, false);
+				VERIFY_RETURN(urlBufferPos + jsonFieldValue.length + 1 <= urlBufferSize, false);
 
-				if (nameDataRange == "newAccount")      { VERIFY_RETURN(urlBufferNewAccountOffset == -1, false); urlBufferNewAccountOffset = urlBufferPos; } 
-				else if (nameDataRange == "newNonce")   { VERIFY_RETURN(urlBufferNewNonceOffset == -1, false);   urlBufferNewNonceOffset   = urlBufferPos; }
-				else if (nameDataRange == "newOrder")   { VERIFY_RETURN(urlBufferNewOrderOffset == -1, false);   urlBufferNewOrderOffset   = urlBufferPos; }
-				memcpy(urlBuffer + urlBufferPos, json.data + jsonFieldValue.start, jsonFieldValue.length());
-				urlBufferPos += jsonFieldValue.length();
+				if (jsonFieldName == "newAccount"a)      { VERIFY_RETURN(urlBufferNewAccountOffset == -1, false); urlBufferNewAccountOffset = urlBufferPos; } 
+				else if (jsonFieldName == "newNonce"a)   { VERIFY_RETURN(urlBufferNewNonceOffset == -1, false);   urlBufferNewNonceOffset   = urlBufferPos; }
+				else if (jsonFieldName == "newOrder"a)   { VERIFY_RETURN(urlBufferNewOrderOffset == -1, false);   urlBufferNewOrderOffset   = urlBufferPos; }
+				memcpy(urlBuffer + urlBufferPos, jsonFieldValue.str, jsonFieldValue.length);
+				urlBufferPos += jsonFieldValue.length;
 				urlBuffer[urlBufferPos++] = '\0';
 			} else {
 				json.skip_value();

@@ -24,7 +24,7 @@ const char penguin[]{ R"(
 )"};
 
 const char BLOG_PAGE_HEADER[] {
-R"(
+R"_html(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -43,7 +43,6 @@ R"(
 		body {
 			background-color: #121212;
 			font-size: 14px;
-
 		}
 		.content {
 			background-color: #282828;
@@ -52,14 +51,57 @@ R"(
 			width: 600px;
 			margin-left: auto;
 			margin-right: auto;
+			margin-top: 20px;
 			line-height: 22px;
 		}
-		.content a:link {
-			color: #0077AA;
+			.content a:link {
+				color: #0077AA;
+			}
+			.content a:visited {
+				color: #685098;
+			}
+			.content hr {
+				color: #3F3F3F;
+				margin-top: 10px;
+				margin-bottom: 10px
+			}
+		.comments {
+
 		}
-		.content a:visited {
-			color: #685098;
+			.comments h4 {
+				font-size: 16px;
+				padding-bottom: 5px;
+			}
+			.comments p {
+				margin-left: 10px;
+				white-space: pre-wrap;
+			}
+		.text_input {
+			padding: 5px;
+			border: none;
+			box-sizing: border-box;
+			margin-bottom: 10px;
+			resize: none;
+			width: 100%;
+			background-color: #202020;
+			font-size: 14px;
+			outline: none;
+			display: inline;
 		}
+			.text_input:focus {
+				outline: 2px solid #3F3F3F;
+			}
+		.button_input {
+			margin-left: 2px;
+			color: #C9D1D9;
+			background-color: #505050;
+			border-color: #404040;
+			padding: 4px;
+			padding-bottom: 6px;
+		}
+			.button_input:hover {
+				background-color: #404040;
+			}
 		h1, h2, h3 {
 			text-align: center;
 			line-height: 1.2;
@@ -70,8 +112,53 @@ R"(
 			margin-bottom: 5px;
 		}
 	</style>
+	<script>
+		function update_textarea_size(element) {
+			element.style.height = "auto";
+			element.style.height = element.scrollHeight + "px";
+		}
+		function get_comments() {
+			fetch("/api/GetComments", {
+				method: "POST",
+				body: window.location.pathname
+			})
+			.then(res => res.json())
+			.then(res => {
+				var commentsElement = document.getElementById("comments");
+				commentsElement.textContent = "";
+				for (var i = 0; i < res.length; i += 2) {
+					commentsElement.appendChild(document.createElement("hr"));
+					var nameElement = document.createElement("h4");
+					nameElement.textContent = res[i];
+					commentsElement.appendChild(nameElement);
+					var contentElement = document.createElement("p");
+					contentElement.textContent = res[i + 1];
+					commentsElement.appendChild(contentElement);
+				}
+			});
+		}
+		function post_comment() {
+			var name = document.getElementById("comment_name");
+			var content = document.getElementById("comment_content");
+			fetch("/api/NewComment", {
+				method: "POST",
+				body: JSON.stringify({
+					post: window.location.pathname,
+					name: name.value,
+					content: content.value
+				})
+			}).then(res => {
+				content.value = "";
+				content.oninput();
+				get_comments();
+			});
+		}
+		function on_load() {
+			get_comments();
+		}
+	</script>
 </head>
-<body>
+<body onload="on_load()">
 	<header>
 		<h2 style="background-color: #6F1010; margin-top: 0; margin-bottom: 0; padding-top: 10px; padding-bottom: 20px"><a href="/" style="text-decoration: none; padding: 5px">DrillEngine Blog</a></h2>
 		<div style="background-color: #3F1818; margin-left: auto; margin-right: auto; font-size: 15px;">
@@ -81,16 +168,27 @@ R"(
 		</div>
 	</header>
 	<div class="content">
-)"
+)_html"
 };
 
 const char BLOG_PAGE_FOOTER[]{
-R"(
+R"_html(
+	</div>
+	<div class="content">
+		<h2 style="margin-top: 0">Comments</h2>
+		<hr />
+		<div style="padding:2px">
+			<input id="comment_name" class="text_input" style="width:auto" type="text" id="comment_name" placeholder="Your name" />
+			<textarea id="comment_content" class="text_input" rows=3 placeholder="Write a comment" oninput="update_textarea_size(this)"></textarea>
+			<button class="button_input" onclick="post_comment()">Post Comment</button>
+		</div>
+		<div id="comments" class="comments">
+		</div>
 	</div>
 </body>
 
 </html>
-)"
+)_html"
 };
 
 X509Certificate cert;
@@ -225,9 +323,55 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 				}
 			}
 			if (http.readComplete) {
-				if (client.requestMethod != HTTP_METHOD_GET) {
-					client.tlsClient.write_str("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
-				} else {
+				if (client.requestMethod == HTTP_METHOD_POST) {
+					StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
+					if (requestPath == "/api/NewComment"a) {
+						StrA postCommentedOn{};
+						StrA commenterName{};
+						StrA commentData{};
+
+						JSONReader json; json.init(http.src + http.contentOffset, http.contentLength);
+						json.begin_object();
+						StrA fieldName;
+						while (json.read_field_name(&fieldName)) {
+							StrA fieldValue{};
+							if (fieldName == "post"a) { postCommentedOn = json.consume_string_field(); }
+							else if (fieldName == "name"a) { commenterName = json.consume_string_field(); }
+							else if (fieldName == "content"a) { commentData = json.consume_string_field(); }
+							else { json.skip_value(); }
+						}
+						json.end_object();
+
+						if (!json.errored && !postCommentedOn.is_empty() && !commenterName.is_empty() && !commentData.is_empty()) {
+							BlogEntry* entry = get_blog_entry(postCommentedOn);
+							if (entry) {
+								blog_add_comment(entry, commenterName, commentData);
+								client.tlsClient.write_str("HTTP/1.1 200 OK\r\n\r\n");
+							} else {
+								client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+							}
+						} else {
+							client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+						}
+					} else if (requestPath == "/api/GetComments"a) {
+						BlogEntry* entry = get_blog_entry(StrA{ http.src + http.contentOffset, http.contentLength });
+						if (entry) {
+							client.tlsClient.write_str("[");
+							for (BlogComment* comment = entry->firstComment; comment; comment = comment->nextComment) {
+								client.tlsClient.write_str("\"")
+									.write_bytes(comment->username.str, comment->username.length)
+									.write_str("\",\"")
+									.write_bytes(comment->content.str, comment->content.length)
+									.write_str(comment->nextComment ? "\"," : "\"");
+							}
+							client.tlsClient.write_str("]");
+						} else {
+							client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+						}
+					} else {
+						client.tlsClient.write_str("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
+					}
+				} else if (client.requestMethod == HTTP_METHOD_GET) {
 					StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
 					if (requestPath == "/"a) {
 						requestPath = "/MainPage.html"a;
@@ -245,7 +389,13 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 					} else {
 						client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
 					}
+				} else {
+					client.tlsClient.write_str("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
 				}
+				client.tlsClient.error_alert(TLS_ALERT_CLOSE_NOTIFY);
+			}
+			if (!http.readComplete && client.tlsClient.receiveBufferDataEnd == sizeof(TLSConnection::receiveBuffer)) {
+				client.tlsClient.write_str("HTTP/1.1 413 Payload Too Large\r\n\r\n");
 				client.tlsClient.error_alert(TLS_ALERT_CLOSE_NOTIFY);
 			}
 		}
