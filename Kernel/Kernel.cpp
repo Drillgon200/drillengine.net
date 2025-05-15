@@ -323,8 +323,11 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 				}
 			}
 			if (http.readComplete) {
+				StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
+				if (requestPath == "/"a) {
+					requestPath = "/MainPage.html"a;
+				}
 				if (client.requestMethod == HTTP_METHOD_POST) {
-					StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
 					if (requestPath == "/api/NewComment"a) {
 						StrA postCommentedOn{};
 						StrA commenterName{};
@@ -343,18 +346,25 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 						json.end_object();
 
 						if (!json.errored && !postCommentedOn.is_empty() && !commenterName.is_empty() && !commentData.is_empty()) {
+							if (postCommentedOn == "/"a) {
+								postCommentedOn = "/MainPage.html"a;
+							}
 							BlogEntry* entry = get_blog_entry(postCommentedOn);
 							if (entry) {
 								blog_add_comment(entry, commenterName, commentData);
 								client.tlsClient.write_str("HTTP/1.1 200 OK\r\n\r\n");
 							} else {
-								client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+								client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\n\r\n");
 							}
 						} else {
 							client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
 						}
 					} else if (requestPath == "/api/GetComments"a) {
-						BlogEntry* entry = get_blog_entry(StrA{ http.src + http.contentOffset, http.contentLength });
+						StrA postCommentedOn = StrA{ http.src + http.contentOffset, http.contentLength };
+						if (postCommentedOn == "/"a) {
+							postCommentedOn = "/MainPage.html"a;
+						}
+						BlogEntry* entry = get_blog_entry(postCommentedOn);
 						if (entry) {
 							client.tlsClient.write_str("[");
 							for (BlogComment* comment = entry->firstComment; comment; comment = comment->nextComment) {
@@ -366,16 +376,12 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 							}
 							client.tlsClient.write_str("]");
 						} else {
-							client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+							client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\n\r\n");
 						}
 					} else {
 						client.tlsClient.write_str("HTTP/1.1 405 Method Not Allowed\r\n\r\n");
 					}
 				} else if (client.requestMethod == HTTP_METHOD_GET) {
-					StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
-					if (requestPath == "/"a) {
-						requestPath = "/MainPage.html"a;
-					}
 					if (BlogEntry* entry = get_blog_entry(requestPath)) {
 						char header[1024];
 						char* headerPtr = header;
