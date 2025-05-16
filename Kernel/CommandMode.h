@@ -30,7 +30,8 @@ enum CommandModeCmdType : U16 {
 	COMMAND_MODE_CMD_TYPE_KEEPALIVE = 4,
 	COMMAND_MODE_CMD_TYPE_ACME_REQUEST_CERT = 5,
 	COMMAND_MODE_CMD_TYPE_GET_CERT_DATA = 6,
-	COMMAND_MODE_CMD_TYPE_SET_CERT_DATA = 7
+	COMMAND_MODE_CMD_TYPE_SET_CERT_DATA = 7,
+	COMMAND_MODE_CMD_TYPE_SERVER_RESTART = 8
 };
 struct CommandModeCmdHeader {
 	CommandModeCmdType type;
@@ -265,6 +266,9 @@ void handle_command_mode_client(TLSConnection& client, CommandModeState& state) 
 					memcpy(serverCert.cert, certData->certData, certData->certLength);
 					serverCert.certLength = certData->certLength;
 					send_response_to_command_mode_client(client, CommandModeCmdResponse::OK, "Updated certificate and ACME data"a);
+				} break;
+				case COMMAND_MODE_CMD_TYPE_SERVER_RESTART: {
+					g_syscallProc(SYSCALL_SHUTDOWN, SYSCALL_SHUTDOWN_CODE_RESTART);
 				} break;
 				default: {
 					fail_command_mode_client(client, "Invalid command type"a);

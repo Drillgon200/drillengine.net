@@ -74,6 +74,9 @@ void blog_add_comment(BlogEntry* entry, StrA username, StrA content) {
 	blogDataDirty = true;
 }
 void blog_add_entry(StrA path, StrA content) {
+	if (get_blog_entry(path)) {
+		return; // No duplicate entries
+	}
 	BlogEntry* entry = blog_alloc<BlogEntry>();
 	entry->path = blog_make_stra(path);
 	entry->content = blog_make_stra(content);
@@ -130,7 +133,42 @@ void init_blog() {
 <h1>One more programming blog</h1>
 <p>Welcome! This is where I'll post programming stuff. Check out the Posts page for more.</p>
 )"a);
-	blogDataDirty = true;
+	
+	blog_add_entry("/CINSCamera.html"a, R"html(
+<h1>CINS 467 Camera Integration</h1>
+<div style="border: 3px #505050 solid; margin: 0">
+	<video autoplay id="userCameraElement" style="width: 100%; height: auto"></video>
+</div>
+<button class="button_input" onclick="save_picture()">Save Picture</button>
+<button class="button_input" onclick="get_picture()">Get Saved Picture</button>
+<div style="border: 3px #505050 solid; margin: 0">
+	<canvas id="savedImageCanvas" style="width: 100%; height: auto; display: none"></canvas>
+	<img src="/api/UploadedImage" id="savedImageDisplay" style="width: 100%; height: auto; display: none" />
+</div>
+<script>
+	navigator.mediaDevices.getUserMedia({ video: true })
+		.then(stream => userCameraElement.srcObject = stream)
+		.catch(err => console.log("Could not set video src " + err));
+
+	function save_picture() {
+		savedImageCanvas.getContext("2d").drawImage(userCameraElement, 0, 0, savedImageCanvas.width, savedImageCanvas.height);
+		var dataURLEncoded = savedImageCanvas.toDataURL("image/jpeg");
+		fetch("/api/UploadImage", {
+			method: "POST",
+			body: dataURLEncoded
+		}).then(res => {
+			savedImageDisplay.src = dataURLEncoded;
+			savedImageDisplay.style.display = "inherit";
+		});
+	}
+	function get_picture() {
+		fetch("/api/UploadedImage").then(res => res.text()).then(res => {
+			savedImageDisplay.src = res;
+			savedImageDisplay.style.display = "inherit";
+		});
+	}
+</script>
+)html"a);
 }
 
 void disk_serialize_blog() {
@@ -171,8 +209,7 @@ B32 disk_deserialize_blog() {
 	BlogPostsHeader* header = (BlogPostsHeader*)BLOG_MEMORY_OFFSET;
 	U64 dataSize = header->dataSize;
 	if (dataSize == 0) {
-		print("Blog not present, initializing\n");
-		init_blog();
+		print("Blog not present, not deserializing\n");
 		return true;
 	}
 	mapArgs.address = BLOG_MEMORY_OFFSET;

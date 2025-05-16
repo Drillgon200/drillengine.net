@@ -153,6 +153,10 @@ endstruc
 %define APIC_SPURIOUS_VECTOR_EOI_BROADCAST_SUPPRESSION (1 << 12)
 %define IA32_APIC_BASE 0x1B
 
+%define EXCEPTION_DIVISION_ERROR 0
+%define EXCEPTION_DEBUG 1
+%define EXCEPTION_NMI 2
+%define EXCEPTION_BREAKPOINT 3
 %define EXCEPTION_GENERAL_PROTECTION_FAULT 13
 %define EXCEPTION_PAGE_FAULT 14
 %define REMAPPED_IRQ0 0x20
@@ -1467,6 +1471,12 @@ longModeLoader:
 	lea rcx, [interruptGeneralProtectionFault]
 	or rcx, rdx
 	mov [IDT_START + EXCEPTION_GENERAL_PROTECTION_FAULT * 16], rcx
+	lea rcx, [interruptDebug]
+	or rcx, rdx
+	mov [IDT_START + EXCEPTION_DEBUG * 16], rcx
+	lea rcx, [interruptBreakpoint]
+	or rcx, rdx
+	mov [IDT_START + EXCEPTION_BREAKPOINT * 16], rcx
 
 	; Add PIT handler
 	lea rcx, [interruptPIC0Timer]
@@ -1942,7 +1952,7 @@ mapPhysicalToVirtual:
 	push rbp
 	push r8
 	
-	mov ebp, 1 ; bottom bit is 0 if supervisor, 1 if user. Bit 1 means needs invalidate. Bit 2 means needs initialize
+	mov ebp, 1 ; Bit 0 is 0 if supervisor, 1 if user. Bit 1 means needs invalidate. Bit 2 means needs initialize
 	xor edi, edi
 	mov rdx, USER_PROGRAM_MEMORY_OFFSET
 	cmp rax, rdx
@@ -2966,6 +2976,27 @@ interruptVirtIOBlock:
 
 interruptGeneric:
 	DEBUG_PRINT_STR faultOccuredStr
+	DEBUG_PRINT_NUM64 [rsp + 8]
+	DEBUG_PRINT_NUM64 [rsp + 16]
+	jmp systemIdle
+	iretq
+	
+interruptDebug:
+	pushf
+	pop rdx
+	DEBUG_PRINT_STR debugFaultOccuredStr
+	DEBUG_PRINT_NUM64 [rsp + 8]
+	DEBUG_PRINT_NUM64 [rsp + 16]
+	mov rax, dr6
+	mov rcx, dr7
+	DEBUG_PRINT_NUM64 rax
+	DEBUG_PRINT_NUM64 rcx
+	DEBUG_PRINT_NUM64 rdx
+	jmp systemIdle
+	iretq
+
+interruptBreakpoint:
+	DEBUG_PRINT_STR breakpointOccuredStr
 	DEBUG_PRINT_NUM64 [rsp + 8]
 	DEBUG_PRINT_NUM64 [rsp + 16]
 	jmp systemIdle
@@ -9420,6 +9451,7 @@ syscallHandler:
 	; This doesn't make sense to me, since interrupts have their own stack via TSS anyway,
 	; but I'd rather play it safe in case there's something I'm missing.
 	sti
+	pushf
 	
 	;DEBUG_PRINT_STR syscallStr
 	;DEBUG_PRINT_NUM eax
@@ -9687,6 +9719,7 @@ syscallHandler:
 	mov eax, -1
 .end:
 	sti
+	pop r11 ; get flags back
 	mov rcx, r9
 	; restore stack to user space stack
 	mov r8, rsp
@@ -9720,6 +9753,8 @@ debugGotHere3 db "GotHere3",0x0a,0x00
 systemIdleStr db "Went to system idle",0x0a,0x00
 timerInteruptStr db "Timer Interrupt",0x0a,0x00
 faultOccuredStr db "Fault Occured",0x0a,0x00
+breakpointOccuredStr db "Breakpoint Occured",0x0a,0x00
+debugFaultOccuredStr db "Debug Fault Occured",0x0a,0x00
 generalProtectionFaultStr db "General Protection Fault",0x0a,0x00
 pageFaultStr db "Page Fault",0x0a,0x00
 nameAssignedNull db "Name Assigned Null",0x0a,0x00

@@ -1,5 +1,7 @@
 You can find this live at https://webserver.drillengine.net
 
+Camera integration (view webcam, upload to server, download image later) is at https://webserver.drillengine.net/CINSCamera.html
+
 Project structure:
 
 /bootloader/bootloader.asm contains the x86 assembly OS kernel
@@ -28,6 +30,9 @@ Build instructions for testing:
 The build process looks like this:
 
 bootloader.asm -> bootloader binary (using nasm)
+
 Kernel.sln -> Kernel.dll (using visual studio)
+
 Kernel.dll -> Kernel.dxe (OSBuild.exe parses DLL and writes custom executable format)
+
 bootloader binary + kernel.sln -> disk.img (OSBuild writes the programs into their respective locations on the final disk image)

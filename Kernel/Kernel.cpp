@@ -191,6 +191,10 @@ R"_html(
 )_html"
 };
 
+#define SAVED_IMAGE_MEMORY_OFFSET 0x15000000000
+#define SAVED_IMAGE_MEMORY_CAP 1024 * 1024 * 20
+U32 savedImageSize;
+
 X509Certificate cert;
 
 ACMEAgent acmeAgent;
@@ -206,11 +210,13 @@ struct Client {
 	Range requestTarget;
 	CommandModeState commandModeState;
 	B8 commandMode;
+	B8 imageWriteMode;
 
 	void init(U32 connectionIdx) {
 		tlsClient.accept_connection_from_client(connectionIdx, &cert);
 		httpReader.init(reinterpret_cast<char*>(tlsClient.receiveBuffer), 0);
 		commandMode = false;
+		imageWriteMode = false;
 		commandModeState.state = CommandModeState::REQUEST_AUTH;
 	}
 };
@@ -322,7 +328,31 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 					}
 				}
 			}
-			if (http.readComplete) {
+			if (client.imageWriteMode || http.headerDone && client.requestMethod == HTTP_METHOD_POST && StrA{ http.src + client.requestTarget.start, client.requestTarget.length() } == "/api/UploadImage"a) {
+				if (!client.imageWriteMode) {
+					if (client.httpReader.chunkedEncoding || client.httpReader.contentLength == 0 || client.httpReader.contentLength > SAVED_IMAGE_MEMORY_CAP) {
+						client.tlsClient.write_str("HTTP/1.1 400 Bad Request\r\n\r\n");
+						client.tlsClient.error_alert(TLS_ALERT_CLOSE_NOTIFY);
+					} else {
+						client.imageWriteMode = true;
+						client.tlsClient.skip_received_bytes(client.httpReader.contentOffset);
+						savedImageSize = 0;
+					}
+				}
+				if (client.imageWriteMode) {
+					while (client.tlsClient.received_user_data_size() && savedImageSize < client.httpReader.contentLength) {
+						U32 dataToCopy = min(client.tlsClient.received_user_data_size(), SAVED_IMAGE_MEMORY_CAP - savedImageSize);
+						memcpy(((Byte*)SAVED_IMAGE_MEMORY_OFFSET) + savedImageSize, client.tlsClient.receiveBuffer + client.tlsClient.receiveBufferUserReadPos, dataToCopy);
+						savedImageSize += dataToCopy;
+						client.tlsClient.receive_data();
+					}
+					if (savedImageSize >= client.httpReader.contentLength) {
+						print("Uploaded image\n");
+						client.tlsClient.write_str("HTTP/1.1 200 OK\r\n\r\n");
+						client.tlsClient.error_alert(TLS_ALERT_CLOSE_NOTIFY);
+					}
+				}
+			} else if (http.readComplete) {
 				StrA requestPath = StrA{ http.src + client.requestTarget.start, client.requestTarget.length() };
 				if (requestPath == "/"a) {
 					requestPath = "/MainPage.html"a;
@@ -386,12 +416,20 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 						char header[1024];
 						char* headerPtr = header;
 						headerPtr = strcpy(headerPtr, "HTTP/1.1 200 OK\r\nContent-Length: ");
-						headerPtr += ascii_base10_encode_u32(headerPtr, 1024 - (headerPtr - header), sizeof(BLOG_PAGE_HEADER) + entry->content.length + sizeof(BLOG_PAGE_FOOTER));
+						headerPtr += ascii_base10_encode_u32(headerPtr, sizeof(header) - (headerPtr - header), sizeof(BLOG_PAGE_HEADER) + entry->content.length + sizeof(BLOG_PAGE_FOOTER));
 						headerPtr = strcpy(headerPtr, "\r\n\r\n");
 						client.tlsClient.write_bytes(header, headerPtr - header);
 						client.tlsClient.queue_buffer_to_send(BLOG_PAGE_HEADER, sizeof(BLOG_PAGE_HEADER));
 						client.tlsClient.queue_buffer_to_send(entry->content.str, entry->content.length);
 						client.tlsClient.queue_buffer_to_send(BLOG_PAGE_FOOTER, sizeof(BLOG_PAGE_FOOTER));
+					} else if (requestPath == "/api/UploadedImage"a) {
+						char header[1024];
+						char* headerPtr = header;
+						headerPtr = strcpy(headerPtr, "HTTP/1.1 200 OK\r\nContent-Length: ");
+						headerPtr += ascii_base10_encode_u32(headerPtr, sizeof(header) - (headerPtr - header), savedImageSize);
+						headerPtr = strcpy(headerPtr, "\r\n\r\n");
+						client.tlsClient.write_bytes(header, headerPtr - header);
+						client.tlsClient.queue_buffer_to_send((void*)SAVED_IMAGE_MEMORY_OFFSET, savedImageSize);
 					} else {
 						client.tlsClient.write_str("HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
 					}
@@ -451,7 +489,19 @@ __declspec(dllexport) void __vectorcall server_main(SyscallProc syscallProc) {
 	//run_test_get_request();
 	//run_test_https_get_request();
 
-	disk_deserialize_blog();
+	if (!disk_deserialize_blog()) {
+		syscallProc(SYSCALL_SHUTDOWN, SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP);
+	}
+	init_blog();
+
+	SyscallVirtualMapArgs mapArgs;
+	mapArgs.address = SAVED_IMAGE_MEMORY_OFFSET;
+	mapArgs.length = SAVED_IMAGE_MEMORY_CAP;
+	mapArgs.pageFlags = PAGE_PRESENT | PAGE_WRITE | PAGE_EXECUTE_DISABLE;
+	if (g_syscallProc(SYSCALL_VIRTUAL_MAP, U64(&mapArgs)) != SYSCALL_VIRTUAL_MAP_SUCCESS) {
+		print("Saved image memory map failed\n");
+		syscallProc(SYSCALL_SHUTDOWN, SYSCALL_SHUTDOWN_CODE_DEEP_SLEEP);
+	}
 
 	while (true) {
 		// Pump TCP message queue
