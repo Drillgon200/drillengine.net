@@ -89,8 +89,6 @@ void blog_add_entry(StrA path, StrA content) {
 
 void init_blog() {
 	BlogPostsHeader* header = (BlogPostsHeader*)BLOG_MEMORY_OFFSET;
-	header->dataSize = sizeof(BlogPostsHeader);
-	header->firstEntry = nullptr;
 	blog_add_entry("/BuildingThisBlog.html"a, R"(
 <h1>Building This Blog, Part 1</h1>
 <h2>This Blog</h2>
@@ -209,6 +207,8 @@ B32 disk_deserialize_blog() {
 	BlogPostsHeader* header = (BlogPostsHeader*)BLOG_MEMORY_OFFSET;
 	U64 dataSize = header->dataSize;
 	if (dataSize == 0) {
+		header->dataSize = sizeof(BlogPostsHeader);
+		header->firstEntry = nullptr;
 		print("Blog not present, not deserializing\n");
 		return true;
 	}

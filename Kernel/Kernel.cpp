@@ -343,6 +343,7 @@ void handle_server_request_notification(U16 connectionIdx, U32 tcpFlags) {
 					while (client.tlsClient.received_user_data_size() && savedImageSize < client.httpReader.contentLength) {
 						U32 dataToCopy = min(client.tlsClient.received_user_data_size(), SAVED_IMAGE_MEMORY_CAP - savedImageSize);
 						memcpy(((Byte*)SAVED_IMAGE_MEMORY_OFFSET) + savedImageSize, client.tlsClient.receiveBuffer + client.tlsClient.receiveBufferUserReadPos, dataToCopy);
+						client.tlsClient.skip_received_bytes(dataToCopy);
 						savedImageSize += dataToCopy;
 						client.tlsClient.receive_data();
 					}
