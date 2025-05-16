@@ -2,7 +2,7 @@ You can find this live at https://webserver.drillengine.net
 
 Camera integration (view webcam, upload to server, download image later) is at https://webserver.drillengine.net/CINSCamera.html
 
-Project structure:
+## Project structure:
 
 /bootloader/bootloader.asm contains the x86 assembly OS kernel
 
@@ -12,7 +12,7 @@ Project structure:
 
 /TCPTestSuite/ contains testing code for the OS's TCP implementation
 
-Build instructions for testing:
+## Build instructions for testing:
 
 1. Install Visual Studio
 
@@ -25,6 +25,7 @@ Build instructions for testing:
 5. Open /Kernel/Kernel.sln, build in release mode
 
 6. Run /build/compile_and_test_virtio.bat to compile a disk image and run it with QEMU
+
 
 
 The build process looks like this:
