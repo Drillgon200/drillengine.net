@@ -1987,6 +1987,7 @@ struct TLSConnection {
 				// Try to send the rest later
 				return;
 			}
+			sendRecordPos = sendRecordDataEnd = 0;
 			BigEndianByteBuf record;
 			record.wrap(sendRecord, sizeof(sendRecord));
 			// Record Header
