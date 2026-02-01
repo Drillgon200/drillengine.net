@@ -1,6 +1,4 @@
-You can find this live at https://webserver.drillengine.net
-
-Camera integration (view webcam, upload to server, download image later) is at https://webserver.drillengine.net/CINSCamera.html
+This is my personal website, built from the OS up. You can find this live at https://webserver.drillengine.net
 
 ## Project structure:
 
